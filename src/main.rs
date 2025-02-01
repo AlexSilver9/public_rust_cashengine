@@ -1,7 +1,7 @@
 use std::io;
 use std::io::Read;
 use std::net::TcpStream;
-use flate2::read::{GzDecoder, MultiGzDecoder};
+use flate2::read::{MultiGzDecoder};
 use serde::{Deserialize, Serialize};
 use tungstenite::{connect, Message, WebSocket};
 use tungstenite::stream::MaybeTlsStream;
@@ -24,15 +24,17 @@ fn main() {
     println!("Headers:\n{:#?}", response.headers());
     //println!("Body:\n{}", body);
 
+    // Parse symbols strong typed
     let parse_result: serde_json::Result<Symbols> = serde_json::from_str(body.as_str());
     match parse_result {
         Ok(symbols) => {
-            //println!("{:?}", symbols);
-            symbols.data.iter().for_each(|symbol| {
-                print!("Symbol: {:?}", symbol);
-            });
+            let len = symbols.data.len();
+            let data = symbols.data;
+            for symbol in data {
+                println!("Symbol: {}", symbol.symbol.unwrap());
+            }
             println!("\n");
-            println!("Symbols received: {}", symbols.data.len());
+            println!("Symbols received: {}", len);
         }
         Err(e) => {
             println!("Error parsing symbols: {}, {}", e, body);
@@ -40,7 +42,28 @@ fn main() {
         }
     }
 
-    // Websocket connection
+    // Parse symbols as map
+    /*
+    let symbols_response: serde_json::Map<String, Value> = serde_json::from_str(body.as_str()).expect("Failed to parse symbols as map");
+    symbols_response.iter().for_each(|(key, value)| {
+        if key.eq("data") {
+            let data = value.as_array().unwrap();
+            for item in data {
+                if let Some(item_map) = item.as_object() {
+                    if let (Some(symbol), Some(base), Some(quote)) = (item_map.get("symbol"), item_map.get("bc"), item_map.get("qc")) {
+                        println!("Symbol: {}, Base: {}, Quote: {}", symbol.as_str().unwrap(), base.as_str().unwrap(), quote.as_str().unwrap());
+                    }
+                }
+            }
+        } else {
+            println!("Key: {}, Value: {:?}", key, value);
+        }
+        println!("*******************************************************************************++\n\n")
+    });
+    */
+
+    // WebSocket message handling
+
     let (mut socket, response) = connect(
         "wss://api-aws.huobi.pro/ws"
     ).expect("Failed to connect");
@@ -87,7 +110,7 @@ fn send_message(socket: &mut WebSocket<MaybeTlsStream<TcpStream>>, mut s: String
     let sent = String::from(s.as_str());
     let msg = Message::text(s);
     match socket.send(msg) {
-        Ok(x) => {
+        Ok(()) => {
             println!("Sent {}", sent);
         },
         Err(e) => {
@@ -104,6 +127,7 @@ fn decode_reader(bytes: Vec<u8>) -> io::Result<String> {
 }
 
 #[derive(Serialize, Deserialize, Debug)]
+#[serde(rename_all = "kebab-case")]
 struct Symbol {
     // field, type, required, description
     symbol: Option<String>, // false	symbol(outside)
@@ -142,6 +166,7 @@ struct Symbol {
 }
 
 #[derive(Serialize, Deserialize, Debug)]
+#[serde(rename_all = "kebab-case")]
 struct Symbols {
     status: String,             // false    status
     data: Vec<Symbol>,          // false    data
