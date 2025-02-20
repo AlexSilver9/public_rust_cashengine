@@ -7,9 +7,11 @@ use std::{io, str};
 use std::io::Read;
 use std::net::TcpStream;
 use flate2::read::MultiGzDecoder;
+use mmap_sync::synchronizer::Synchronizer;
 use tungstenite::{Message, WebSocket};
 use tungstenite::stream::MaybeTlsStream;
 use crate::time_util::print_systemtime;
+use crate::websocket::SharedMessage;
 
 pub fn run() {
     print_systemtime();
@@ -33,7 +35,8 @@ pub fn run() {
 
     let websocket_url = "wss://api-aws.huobi.pro/ws";
 
-    let mut websocket = websocket::CeWebSocket::connect(websocket_url).expect(format!("Failed to connect websocket url: {}", url).as_str())
+    let mut websocket = websocket::CeWebSocket::connect(websocket_url)
+        .expect(format!("Failed to connect websocket url: {}", websocket_url).as_str());
 
     // WebSocket message handling
 
@@ -64,62 +67,21 @@ pub fn run() {
     println!("Subscribing to symbols: {}", subscribe_request);
     websocket.subscribe(subscribe_request.as_str());
 
-    static mut BUFFER: [u8; 4096] = [0; 4096];
-    let mut max_size = 0;
+    let file_path = "/tmp/tick.mmap";
+    websocket.run(file_path);
 
+    let mut synchronizer = Synchronizer::new(file_path.as_ref());
     loop {
-        let msg = socket.read().expect("Error reading message");
-        match msg {
-            Message::Text(message) => {
-                println!("Received text message from websocket server: {}", message);
-            },
-            Message::Binary(bytes) => {
-                let vec = bytes.as_ref().to_vec();
-
-                // Uses no-copy buffer
-                // TODO_ Pre-allocate the buffer and reset it here
-
-                unsafe {
-                    match gz_inflate_to_buffer(&vec, &mut BUFFER) {
-                        Ok(size) => {
-                            if size >= 6 && BUFFER.get_unchecked(..6) == b"{\"ping" {
-                                let message = str::from_utf8_unchecked(&BUFFER[..size]);
-                                println!("Received ping from websocket server: {}", message);
-                                send_pong(&mut socket, message);
-                            } else {
-                                let message = str::from_utf8_unchecked(&BUFFER[..size]);
-                                //println!("Received message: {}", message);
-                            }
-                            if size > max_size {
-                                max_size = size;
-                                println!("Max size: {}", max_size);
-                            }
-                        }
-                        Err(e) => eprintln!("Failed to parse message: {:?}: {:?}", e, String::from_utf8_lossy(&vec)),
-                    }
-                }
-            },
-            Message::Close(close_frame) => {
-                match close_frame {
-                    Some(reason) => {
-                        println!("Connection closed by server with reason: {}", reason);
-                        match socket.close(None) {
-                            Ok(()) => println!("Closed connection to server"),
-                            Err(e) => println!("Failed to close connection to sever: {}", e),
-                        }
-                    },
-                    None => {
-                        println!("Connection closed by server without reason");
-                        match socket.close(None) {
-                            Ok(()) => println!("Closed connection to server"),
-                            Err(e) => println!("Failed to close connection to server: {}", e),
-                        }
-                    },
-                }
+        let shared_message = unsafe {
+            synchronizer.read::<SharedMessage>(false)
+        };
+        match shared_message {
+            Ok(shared_message) => {
+                println!("Received shares message: {:?}", shared_message.message);
+            }
+            Err(e) => {
+                println!("Failed to read from mmap file: {}", file_path);
                 break;
-            },
-            _ => {
-                println!("Received unknown message from server");
             }
         }
     }
