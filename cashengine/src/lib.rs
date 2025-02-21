@@ -6,12 +6,14 @@ mod websocket;
 use std::{io, str};
 use std::io::Read;
 use std::net::TcpStream;
+use std::ops::Deref;
 use flate2::read::MultiGzDecoder;
+use mmap_sync::guard::ReadResult;
 use mmap_sync::synchronizer::Synchronizer;
 use tungstenite::{Message, WebSocket};
 use tungstenite::stream::MaybeTlsStream;
 use crate::time_util::print_systemtime;
-use crate::websocket::SharedMessage;
+use crate::websocket::{SharedMessage, SharedTick};
 
 pub fn run() {
     print_systemtime();
@@ -84,6 +86,22 @@ pub fn run() {
                 break;
             }
         }
+
+        /*
+        let shared_tick_result = unsafe {
+            synchronizer.read::<SharedTick>(false)
+        };
+        match shared_tick_result {
+            Ok(tick) => {
+                println!("Received tick message: {:?}", *tick);
+            }
+            Err(e) => {
+                println!("Failed to read from mmap file: {}", file_path);
+                break;
+            }
+        }
+
+         */
     }
 }
 

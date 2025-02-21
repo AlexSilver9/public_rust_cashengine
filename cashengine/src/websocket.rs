@@ -1,5 +1,7 @@
+use std::fmt::{Debug, Display};
 use std::net::TcpStream;
 use std::str;
+use std::str::FromStr;
 use std::thread;
 use std::time::Duration;
 use mmap_sync::synchronizer::Synchronizer;
@@ -23,6 +25,77 @@ pub struct CeWebSocket {
 #[archive_attr(derive(CheckBytes))]
 pub struct SharedMessage {
     pub message: Vec<u8>,
+}
+
+#[derive(Archive, Serialize, Deserialize, Debug, PartialEq)]
+#[archive_attr(derive(CheckBytes))]
+pub struct SharedTick {
+    pub channel: String,
+    pub timestamp: i32,
+    pub sequence: i32,
+    pub ask: f64,
+    pub ask_size: f64,
+    pub bid: f64,
+    pub bid_size: f64,
+    pub symbol: String,
+}
+impl Display for SharedTick {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f,
+            "Channel: {}, Timestamp: {}, Sequence: {}, Ask: {}, Ask Size: {}, Bid: {}, Bid Size: {}, Symbol: {}",
+            self.channel,
+            self.timestamp,
+            self.sequence,
+            self.ask,
+            self.ask_size,
+            self.bid,
+            self.bid_size,
+            self.symbol,
+        )
+    }
+}
+
+impl Debug for ArchivedSharedTick {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("ArchivedSharedTick")
+            .field("channel", &self.channel)
+            .field("timestamp", &self.timestamp)
+            .field("sequence", &self.sequence)
+            .field("ask", &self.ask)
+            .field("ask_size", &self.ask_size)
+            .field("bid", &self.bid)
+            .field("bid_size", &self.bid_size)
+            .field("symbol", &self.symbol)
+            .finish()
+    }
+}
+
+impl From<&[u8]> for SharedTick {
+    fn from(data: &[u8]) -> Self {
+        let mut tick = SharedTick {
+            channel: String::new(),
+            timestamp: 0,
+            sequence: 0,
+            ask: 0.0,
+            ask_size: 0.0,
+            bid: 0.0,
+            bid_size: 0.0,
+            symbol: String::new(),
+        };
+
+        let mut length: usize = 0;
+        for (i, byte) in data.iter().enumerate() {
+            if *byte == 0 {
+                length = i;
+                break;
+            }
+            length = i;
+        }
+
+        tick.channel = String::from_utf8_lossy(&data[0..length]).to_string();
+
+        tick
+    }
 }
 
 impl CeWebSocket {
@@ -60,7 +133,13 @@ impl CeWebSocket {
             let mut synchronizer = Synchronizer::new(file_path.as_str().as_ref());
             let mut local_max_size = max_size;
             loop {
-                let msg = socket.read().expect("Error reading message");
+                let msg = match socket.read() {
+                    Ok(msg) => msg,
+                    Err(e) => {
+                        eprintln!("Error reading message: {}", e);
+                        break;
+                    }
+                };
                 match msg {
                     Message::Text(message) => {
                         println!("Received text message from websocket server: {}", message);
@@ -86,6 +165,14 @@ impl CeWebSocket {
                                             .write(&shared_message, Duration::from_secs(1))
                                             .expect(format!("Failed to write to mmap file: {}", file_path).as_str());
                                         println!("Wrote {} bytes to mmap file, reset: {}", written, reset);
+
+                                        /*let tick = SharedTick::from(&BUFFER[..size]);
+                                        let (written, reset) = synchronizer
+                                            .write(&tick, Duration::from_secs(1))
+                                            .expect(format!("Failed to write tick to mmap file: {}", file_path).as_str());
+                                        println!("Wrote {} bytes of tick to mmap file, reset: {}, tick: {}", written, reset, tick);
+
+                                         */
                                     }
                                     if size > local_max_size {
                                         local_max_size = size;
@@ -116,7 +203,8 @@ impl CeWebSocket {
                         break;
                     },
                     _ => {
-                        println!("Received unknown message from server");
+                        eprintln!("Received unknown message from server");
+                        break;
                     }
                 }
             }
