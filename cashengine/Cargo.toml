@@ -11,8 +11,7 @@ hocon = "0.9.0"
 flate2 = "1.0"
 tungstenite = { version = "0.26", features = ["native-tls"] }
 reqwest = { version = "0.12", features = ["blocking"] }
-# https://github.com/cloudflare/mmap-sync/blob/main/Cargo.toml
-mmap-sync = "2.0.1"
 bytecheck = { version = "0.6.12", default-features = false }
 rkyv = { version = "0.7.45", features = ["validation", "strict"] }
 faster-hex = "0.10.0"
+memmap2 = "0.5.10"

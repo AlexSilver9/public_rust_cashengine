@@ -1,101 +1,22 @@
-use std::fmt::{Debug, Display};
+use crate::mmap_queue;
+use crate::{send_message, send_pong};
+use std::fmt::Write;
 use std::net::TcpStream;
-use std::str;
-use std::str::FromStr;
-use std::thread;
-use std::time::Duration;
-use mmap_sync::synchronizer::Synchronizer;
+use std::{io, str};
+use std::io::Read;
+use flate2::read::MultiGzDecoder;
 use tungstenite::stream::MaybeTlsStream;
 use tungstenite::{Message, WebSocket};
-use crate::{gz_inflate_to_buffer, send_message, send_pong};
-use bytecheck::CheckBytes;
-use rkyv::{Archive, Serialize, Deserialize};
-
 // non-blocking: https://github.com/haxpor/bybit-shiprekt/blob/6c3c5693d675fc997ce5e76df27e571f2aaaf291/src/main.rs
 
+pub const CHUNK_SIZE: usize = 1024;
+
 // TODO: Make non-static
-static mut BUFFER: [u8; 4096] = [0; 4096];
+static mut BUFFER: [u8; CHUNK_SIZE] = [0; CHUNK_SIZE];
 
 pub struct CeWebSocket {
     socket: WebSocket<MaybeTlsStream<TcpStream>>,
     max_size: usize,
-}
-
-#[derive(Archive, Serialize, Deserialize, Debug, PartialEq)]
-#[archive_attr(derive(CheckBytes))]
-pub struct SharedMessage {
-    pub message: Vec<u8>,
-}
-
-#[derive(Archive, Serialize, Deserialize, Debug, PartialEq)]
-#[archive_attr(derive(CheckBytes))]
-pub struct SharedTick {
-    pub channel: String,
-    pub timestamp: i32,
-    pub sequence: i32,
-    pub ask: f64,
-    pub ask_size: f64,
-    pub bid: f64,
-    pub bid_size: f64,
-    pub symbol: String,
-}
-impl Display for SharedTick {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f,
-            "Channel: {}, Timestamp: {}, Sequence: {}, Ask: {}, Ask Size: {}, Bid: {}, Bid Size: {}, Symbol: {}",
-            self.channel,
-            self.timestamp,
-            self.sequence,
-            self.ask,
-            self.ask_size,
-            self.bid,
-            self.bid_size,
-            self.symbol,
-        )
-    }
-}
-
-impl Debug for ArchivedSharedTick {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("ArchivedSharedTick")
-            .field("channel", &self.channel)
-            .field("timestamp", &self.timestamp)
-            .field("sequence", &self.sequence)
-            .field("ask", &self.ask)
-            .field("ask_size", &self.ask_size)
-            .field("bid", &self.bid)
-            .field("bid_size", &self.bid_size)
-            .field("symbol", &self.symbol)
-            .finish()
-    }
-}
-
-impl From<&[u8]> for SharedTick {
-    fn from(data: &[u8]) -> Self {
-        let mut tick = SharedTick {
-            channel: String::new(),
-            timestamp: 0,
-            sequence: 0,
-            ask: 0.0,
-            ask_size: 0.0,
-            bid: 0.0,
-            bid_size: 0.0,
-            symbol: String::new(),
-        };
-
-        let mut length: usize = 0;
-        for (i, byte) in data.iter().enumerate() {
-            if *byte == 0 {
-                length = i;
-                break;
-            }
-            length = i;
-        }
-
-        tick.channel = String::from_utf8_lossy(&data[0..length]).to_string();
-
-        tick
-    }
 }
 
 impl CeWebSocket {
@@ -124,90 +45,98 @@ impl CeWebSocket {
         send_message(&mut self.socket, request);
     }
 
-    pub fn run(self, file_path: &str) {
-        let file_path = String::from(file_path);
+    pub fn run<'a>(self, start_ptr: mmap_queue::ShareablePtr, chunk_size: usize, total_size: usize, id: usize) {
         let mut socket = self.socket;
         let max_size = self.max_size;
-        let handle = thread::spawn( move || {
-            // TODO: On Linux use tmpfs shared memory: let mut synchronizer = Synchronizer::new("/dev/shm/hello_world".as_ref());
-            let mut synchronizer = Synchronizer::new(file_path.as_str().as_ref());
-            let mut local_max_size = max_size;
-            loop {
-                let msg = match socket.read() {
-                    Ok(msg) => msg,
-                    Err(e) => {
-                        eprintln!("Error reading message: {}", e);
-                        break;
-                    }
-                };
-                match msg {
-                    Message::Text(message) => {
-                        println!("Received text message from websocket server: {}", message);
-                    },
-                    Message::Binary(bytes) => {
-                        let vec = bytes.as_ref().to_vec();
 
-                        unsafe {
-                            match gz_inflate_to_buffer(&vec, &mut BUFFER) {
-                                Ok(size) => {
-                                    if size >= 6 && BUFFER.get_unchecked(..6) == b"{\"ping" {
-                                        let message = str::from_utf8_unchecked(&BUFFER[..size]);
-                                        println!("Received ping from websocket server: {}", message);
-                                        send_pong(&mut socket, message);
-                                    } else {
-                                        /*let message = str::from_utf8_unchecked(&BUFFER[..size]);
-                                        //println!("Received message: {}", message);
-                                        let shared_message = SharedMessage {
-                                            message: BUFFER[..size].to_vec(),
-                                        };
+        let start_ptr = start_ptr;
+        let start_ptr: *mut u8 = start_ptr.0;
+        let mut value = String::with_capacity(chunk_size);
+        let mut
+        offset = chunk_size * id;
+        // TODO: On Linux use tmpfs shared memory: let mut synchronizer = Synchronizer::new("/dev/shm/hello_world".as_ref());
+        let mut local_max_size = max_size;
+        loop {
+            let msg = match socket.read() {
+                Ok(msg) => msg,
+                Err(e) => {
+                    eprintln!("Error reading message: {}", e);
+                    break;
+                }
+            };
+            match msg {
+                Message::Text(message) => {
+                    println!("Received text message from websocket server: {}", message);
+                },
+                Message::Binary(bytes) => {
+                    let vec = bytes.as_ref().to_vec();
+                    unsafe {
+                        match gz_inflate_to_buffer(&vec, &mut BUFFER) {
+                            Ok(size) => {
+                                if size >= 6 && BUFFER.get_unchecked(..6) == b"{\"ping" {
+                                    let message = str::from_utf8_unchecked(&BUFFER[..size]);
+                                    println!("Received ping from websocket server: {}", message);
+                                    send_pong(&mut socket, message);
+                                } else {
+                                    while offset + chunk_size <= total_size {
+                                        value.clear();
+                                        write!(&mut value, "{}", str::from_utf8_unchecked(&BUFFER[..size])).expect("TODO: panic message");
+                                        assert_eq!(true, value.len() <= chunk_size);
 
-                                        let (written, reset) = synchronizer
-                                            .write(&shared_message, Duration::from_secs(1))
-                                            .expect(format!("Failed to write to mmap file: {}", file_path).as_str());
-                                        println!("Wrote {} bytes to mmap file, reset: {}", written, reset);
-                                        */
-
-                                        let tick = SharedTick::from(&BUFFER[..size]);
-                                        let (written, reset) = synchronizer
-                                            .write(&tick, Duration::from_secs(1))
-                                            .expect(format!("Failed to write tick to mmap file: {}", file_path).as_str());
-                                        println!("Wrote {} bytes of tick to mmap file, reset: {}, tick: {}", written, reset, tick);
+                                        std::ptr::copy_nonoverlapping(
+                                            value.as_ptr(),
+                                            start_ptr.add(offset),
+                                            chunk_size,
+                                        );
+                                        offset += chunk_size * id;
                                     }
-                                    if size > local_max_size {
-                                        local_max_size = size;
-                                    }
-                                    println!("Max size in bytes: {}", local_max_size);
+                                    std::sync::atomic::fence(std::sync::atomic::Ordering::Acquire);
                                 }
-                                Err(e) => eprintln!("Failed to parse message: {:?}: {:?}", e, String::from_utf8_lossy(&vec)),
+                                if size > local_max_size {
+                                    local_max_size = size;
+                                }
+                                println!("Max size in bytes: {}", local_max_size);
                             }
+                            Err(e) => eprintln!("Failed to parse message: {:?}: {:?}", e, String::from_utf8_lossy(&vec)),
                         }
-                    },
-                    Message::Close(close_frame) => {
-                        match close_frame {
-                            Some(reason) => {
-                                println!("Connection closed by server with reason: {}", reason);
-                                match socket.close(None) {
-                                    Ok(()) => println!("Closed connection to server"),
-                                    Err(e) => println!("Failed to close connection to sever: {}", e),
-                                }
-                            },
-                            None => {
-                                println!("Connection closed by server without reason");
-                                match socket.close(None) {
-                                    Ok(()) => println!("Closed connection to server"),
-                                    Err(e) => println!("Failed to close connection to server: {}", e),
-                                }
-                            },
-                        }
-                        break;
-                    },
-                    _ => {
-                        eprintln!("Received unknown message from server");
-                        break;
                     }
+                },
+                Message::Close(close_frame) => {
+                    match close_frame {
+                        Some(reason) => {
+                            println!("Connection closed by server with reason: {}", reason);
+                            match socket.close(None) {
+                                Ok(()) => println!("Closed connection to server"),
+                                Err(e) => println!("Failed to close connection to sever: {}", e),
+                            }
+                        },
+                        None => {
+                            println!("Connection closed by server without reason");
+                            match socket.close(None) {
+                                Ok(()) => println!("Closed connection to server"),
+                                Err(e) => println!("Failed to close connection to server: {}", e),
+                            }
+                        },
+                    }
+                    break;
+                },
+                _ => {
+                    eprintln!("Received unknown message from server");
+                    break;
                 }
             }
-        });
-        //handle.join().unwrap();
+        }
     }
+}
+
+fn gz_inflate_to_string(bytes: &Vec<u8>) -> io::Result<String> {
+    let mut gz = MultiGzDecoder::new(&bytes[..]);
+    let mut s = String::new();
+    gz.read_to_string(&mut s)?;
+    Ok(s)
+}
+
+fn gz_inflate_to_buffer(bytes: &Vec<u8>, buffer: &mut [u8]) -> io::Result<usize> {
+    let mut gz = MultiGzDecoder::new(&bytes[..]);
+    gz.read(buffer)
 }

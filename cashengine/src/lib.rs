@@ -2,19 +2,16 @@ mod time_util;
 mod rest_client;
 mod symbol;
 mod websocket;
+pub mod mmap_queue;
 
-use std::{io, str};
-use std::fs::File;
-use std::io::{Read, Write};
+use std::{str};
+use std::io::{Read};
 use std::net::TcpStream;
-use std::ops::Deref;
-use flate2::read::MultiGzDecoder;
-use mmap_sync::guard::ReadResult;
-use mmap_sync::synchronizer::Synchronizer;
 use tungstenite::{Message, WebSocket};
 use tungstenite::stream::MaybeTlsStream;
 use crate::time_util::print_systemtime;
-use crate::websocket::{SharedMessage, SharedTick};
+
+const MMAP_FILE_SIZE: usize = 1024/*b*/ * 1024/*kb*/; // * 1024/*mb*/; // * 10/*gb*/; // TODO: Make this configurable
 
 pub fn run() {
     print_systemtime();
@@ -43,7 +40,7 @@ pub fn run() {
 
     // WebSocket message handling
 
-    let (mut socket, response) = tungstenite::connect(
+    let (socket, response) = tungstenite::connect(
         websocket_url
     ).expect(format!("Failed to connect websocket url: {}", websocket_url).as_str());
 
@@ -70,56 +67,76 @@ pub fn run() {
     println!("Subscribing to symbols: {}", subscribe_request);
     websocket.subscribe(subscribe_request.as_str());
 
-    let file_path = "/tmp/tick.mmap";
-    websocket.run(file_path);
+    let mmap_file_path = "/tmp/tick.mmap";
+    let log_file_path = "/tmp/rust_cashengine.log"; // TODO: Make this configurable
 
-    let mut synchronizer = Synchronizer::new(file_path.as_ref());
+    let writer_threads = 2;
 
-    let log_file = File::create("/tmp/rust_cashengine.log");
-    let mut log_file = match log_file {
-        Ok( file) => file,
-        Err(e) => {
-            panic!("Failed to create log file: {}", e);
+    let (shareable_ptr, mmap, mmap_file) = mmap_queue::initialize(mmap_file_path, MMAP_FILE_SIZE);
+    let mut log_file = mmap_queue::create_log_file(log_file_path);
+
+    std::thread::scope(|s| {
+        println!("Starting IPC Writer Threads for {} Ids", writer_threads);
+        for id in 0..writer_threads {
+            s.spawn(move || {
+                mmap_queue::write(id, writer_threads, websocket::CHUNK_SIZE, MMAP_FILE_SIZE, &shareable_ptr);
+            });
         }
-    };
+        let main_thread = s.spawn(move || {
+            println!("Starting IPC Reader Thread for {} Ids", writer_threads);
+            mmap_queue::read(writer_threads, websocket::CHUNK_SIZE, MMAP_FILE_SIZE, &shareable_ptr, &mut log_file);
+        });
+        main_thread.join().unwrap();
+        mmap_queue::close(mmap, mmap_file);
+    });
 
-    loop {
-        /*let shared_message = unsafe {
-            synchronizer.read::<SharedMessage>(false)
-        };
-        match shared_message {
-            Ok(shared_message) => {
-                let msg = String::from_utf8(shared_message.message.to_owned()).expect("Invalid UTF-8 in shared message");
-                println!("Received shared message: {}", msg);
-                let write_result = log_file.write_all(msg.as_bytes());
-                match write_result {
-                    Ok(_) => {
-                        log_file.write_all(b"\n").expect("Failed to write newline to log file");
-                        log_file.flush().expect("Failed to flush log file");
-                    },
-                    Err(e) => println!("Failed to write to log file: {}", e),
+    std::thread::scope(|s| {
+        s.spawn(move || {
+            websocket.run(shareable_ptr, websocket::CHUNK_SIZE, writer_threads, 0)
+        });
+
+        s.spawn(move || {
+            loop {
+                /*let shared_message = unsafe {
+                    synchronizer.read::<SharedMessage>(false)
+                };
+                match shared_message {
+                    Ok(shared_message) => {
+                        let msg = String::from_utf8(shared_message.message.to_owned()).expect("Invalid UTF-8 in shared message");
+                        println!("Received shared message: {}", msg);
+                        let write_result = log_file.write_all(msg.as_bytes());
+                        match write_result {
+                            Ok(_) => {
+                                log_file.write_all(b"\n").expect("Failed to write newline to log file");
+                                log_file.flush().expect("Failed to flush log file");
+                            },
+                            Err(e) => println!("Failed to write to log file: {}", e),
+                        }
+                    }
+                    Err(e) => {
+                        println!("Failed to read from mmap file: {}", file_path);
+                        break;
+                    }
                 }
-            }
-            Err(e) => {
-                println!("Failed to read from mmap file: {}", file_path);
-                break;
-            }
-        }
-         */
+                 */
 
-        let shared_tick_result = unsafe {
-            synchronizer.read::<SharedTick>(false)
-        };
-        match shared_tick_result {
-            Ok(tick) => {
-                println!("Received shared tick message: {:?}", *tick);
+                /*let shared_tick_result = unsafe {
+                    synchronizer.read::<SharedTick>(false)
+                };
+                match shared_tick_result {
+                    Ok(tick) => {
+                        println!("Received shared tick message: {:?}", *tick);
+                    }
+                    Err(e) => {
+                        println!("Failed to read from mmap file: {}", file_path);
+                        break;
+                    }
+                }*/
             }
-            Err(e) => {
-                println!("Failed to read from mmap file: {}", file_path);
-                break;
-            }
-        }
-    }
+        });
+        std::sync::atomic::fence(std::sync::atomic::Ordering::Acquire);
+        //mmap_queue.flush().expect("Failed to flush");
+    });
 }
 
 fn send_pong(socket: &mut WebSocket<MaybeTlsStream<TcpStream>>, s: &str) {
@@ -143,14 +160,3 @@ fn send_message(socket: &mut WebSocket<MaybeTlsStream<TcpStream>>, s: &str) {
     }
 }
 
-fn gz_inflate_to_string(bytes: &Vec<u8>) -> io::Result<String> {
-    let mut gz = MultiGzDecoder::new(&bytes[..]);
-    let mut s = String::new();
-    gz.read_to_string(&mut s)?;
-    Ok(s)
-}
-
-fn gz_inflate_to_buffer(bytes: &Vec<u8>, buffer: &mut [u8]) -> io::Result<usize> {
-    let mut gz = MultiGzDecoder::new(&bytes[..]);
-    gz.read(buffer)
-}
