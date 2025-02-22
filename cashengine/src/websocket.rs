@@ -155,8 +155,8 @@ impl CeWebSocket {
                                         println!("Received ping from websocket server: {}", message);
                                         send_pong(&mut socket, message);
                                     } else {
-                                        let message = str::from_utf8_unchecked(&BUFFER[..size]);
-                                        println!("Received message: {}", message);
+                                        /*let message = str::from_utf8_unchecked(&BUFFER[..size]);
+                                        //println!("Received message: {}", message);
                                         let shared_message = SharedMessage {
                                             message: BUFFER[..size].to_vec(),
                                         };
@@ -165,14 +165,13 @@ impl CeWebSocket {
                                             .write(&shared_message, Duration::from_secs(1))
                                             .expect(format!("Failed to write to mmap file: {}", file_path).as_str());
                                         println!("Wrote {} bytes to mmap file, reset: {}", written, reset);
+                                        */
 
-                                        /*let tick = SharedTick::from(&BUFFER[..size]);
+                                        let tick = SharedTick::from(&BUFFER[..size]);
                                         let (written, reset) = synchronizer
                                             .write(&tick, Duration::from_secs(1))
                                             .expect(format!("Failed to write tick to mmap file: {}", file_path).as_str());
                                         println!("Wrote {} bytes of tick to mmap file, reset: {}, tick: {}", written, reset, tick);
-
-                                         */
                                     }
                                     if size > local_max_size {
                                         local_max_size = size;
@@ -209,6 +208,6 @@ impl CeWebSocket {
                 }
             }
         });
-        handle.join().unwrap();
+        //handle.join().unwrap();
     }
 }

@@ -4,7 +4,8 @@ mod symbol;
 mod websocket;
 
 use std::{io, str};
-use std::io::Read;
+use std::fs::File;
+use std::io::{Read, Write};
 use std::net::TcpStream;
 use std::ops::Deref;
 use flate2::read::MultiGzDecoder;
@@ -73,35 +74,51 @@ pub fn run() {
     websocket.run(file_path);
 
     let mut synchronizer = Synchronizer::new(file_path.as_ref());
+
+    let log_file = File::create("/tmp/rust_cashengine.log");
+    let mut log_file = match log_file {
+        Ok( file) => file,
+        Err(e) => {
+            panic!("Failed to create log file: {}", e);
+        }
+    };
+
     loop {
-        let shared_message = unsafe {
+        /*let shared_message = unsafe {
             synchronizer.read::<SharedMessage>(false)
         };
         match shared_message {
             Ok(shared_message) => {
-                println!("Received shares message: {:?}", shared_message.message);
+                let msg = String::from_utf8(shared_message.message.to_owned()).expect("Invalid UTF-8 in shared message");
+                println!("Received shared message: {}", msg);
+                let write_result = log_file.write_all(msg.as_bytes());
+                match write_result {
+                    Ok(_) => {
+                        log_file.write_all(b"\n").expect("Failed to write newline to log file");
+                        log_file.flush().expect("Failed to flush log file");
+                    },
+                    Err(e) => println!("Failed to write to log file: {}", e),
+                }
             }
             Err(e) => {
                 println!("Failed to read from mmap file: {}", file_path);
                 break;
             }
         }
+         */
 
-        /*
         let shared_tick_result = unsafe {
             synchronizer.read::<SharedTick>(false)
         };
         match shared_tick_result {
             Ok(tick) => {
-                println!("Received tick message: {:?}", *tick);
+                println!("Received shared tick message: {:?}", *tick);
             }
             Err(e) => {
                 println!("Failed to read from mmap file: {}", file_path);
                 break;
             }
         }
-
-         */
     }
 }
 
