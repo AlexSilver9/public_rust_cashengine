@@ -1,5 +1,4 @@
 use crate::mmap_queue;
-use crate::{send_message, send_pong};
 use std::fmt::Write;
 use std::net::TcpStream;
 use std::{io, str};
@@ -42,7 +41,7 @@ impl CeWebSocket {
     }
 
     pub fn subscribe(&mut self, request: &str) {
-        send_message(&mut self.socket, request);
+        self.send_message(request);
     }
 
     pub fn run<'a>(self, start_ptr: mmap_queue::ShareablePtr, chunk_size: usize, total_size: usize, id: usize) {
@@ -52,8 +51,7 @@ impl CeWebSocket {
         let start_ptr = start_ptr;
         let start_ptr: *mut u8 = start_ptr.0;
         let mut value = String::with_capacity(chunk_size);
-        let mut
-        offset = chunk_size * id;
+        let mut offset = chunk_size * id;
         // TODO: On Linux use tmpfs shared memory: let mut synchronizer = Synchronizer::new("/dev/shm/hello_world".as_ref());
         let mut local_max_size = max_size;
         loop {
@@ -76,7 +74,7 @@ impl CeWebSocket {
                                 if size >= 6 && BUFFER.get_unchecked(..6) == b"{\"ping" {
                                     let message = str::from_utf8_unchecked(&BUFFER[..size]);
                                     println!("Received ping from websocket server: {}", message);
-                                    send_pong(&mut socket, message);
+                                    self.send_pong(message);
                                 } else {
                                     while offset + chunk_size <= total_size {
                                         value.clear();
@@ -127,7 +125,29 @@ impl CeWebSocket {
             }
         }
     }
+
+    fn send_pong(&mut self, s: &str) {
+        let mut pong = String::with_capacity(s.len());
+        pong.push_str(&s[..3]);
+        pong.push('o');
+        pong.push_str(&s[4..]);
+        self.send_message(pong.as_str());
+    }
+
+    fn send_message(&mut self, s: &str) {
+        let sent = String::from(s);
+        let msg = Message::text(s);
+        match self.socket.send(msg) {
+            Ok(()) => {
+                println!("Sent {}", sent);
+            },
+            Err(e) => {
+                println!("Error sending message: {}", e);
+            }
+        }
+    }
 }
+
 
 fn gz_inflate_to_string(bytes: &Vec<u8>) -> io::Result<String> {
     let mut gz = MultiGzDecoder::new(&bytes[..]);

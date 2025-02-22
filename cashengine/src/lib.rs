@@ -9,6 +9,7 @@ use std::io::{Read};
 use std::net::TcpStream;
 use tungstenite::{Message, WebSocket};
 use tungstenite::stream::MaybeTlsStream;
+use crate::mmap_queue::SharedMemoryQueue;
 use crate::time_util::print_systemtime;
 
 const MMAP_FILE_SIZE: usize = 1024/*b*/ * 1024/*kb*/; // * 1024/*mb*/; // * 10/*gb*/; // TODO: Make this configurable
@@ -67,32 +68,39 @@ pub fn run() {
     println!("Subscribing to symbols: {}", subscribe_request);
     websocket.subscribe(subscribe_request.as_str());
 
+    let websocket_count = 1;
+
     let mmap_file_path = "/tmp/tick.mmap";
     let log_file_path = "/tmp/rust_cashengine.log"; // TODO: Make this configurable
-
-    let writer_threads = 2;
-
-    let (shareable_ptr, mmap, mmap_file) = mmap_queue::initialize(mmap_file_path, MMAP_FILE_SIZE);
-    let mut log_file = mmap_queue::create_log_file(log_file_path);
+    let mut shared_memory_queue = SharedMemoryQueue::create(
+        mmap_file_path,
+        MMAP_FILE_SIZE,
+        log_file_path,
+        websocket_count,
+        websocket::CHUNK_SIZE
+    );
 
     std::thread::scope(|s| {
-        println!("Starting IPC Writer Threads for {} Ids", writer_threads);
-        for id in 0..writer_threads {
+        println!("Starting IPC Writer Threads for {} Ids", websocket_count);
+        for id in 0..websocket_count {
             s.spawn(move || {
-                mmap_queue::write(id, writer_threads, websocket::CHUNK_SIZE, MMAP_FILE_SIZE, &shareable_ptr);
+                println!("Starting IPC Writer Thread for Id {}", id);
+                shared_memory_queue.write(id);
             });
         }
         let main_thread = s.spawn(move || {
-            println!("Starting IPC Reader Thread for {} Ids", writer_threads);
-            mmap_queue::read(writer_threads, websocket::CHUNK_SIZE, MMAP_FILE_SIZE, &shareable_ptr, &mut log_file);
+            println!("Starting IPC Reader Thread for {} Ids", websocket_count);
+            loop {
+                let message = shared_memory_queue.read_next_mesage();
+            }
         });
         main_thread.join().unwrap();
-        mmap_queue::close(mmap, mmap_file);
+        shared_memory_queue.close();
     });
 
     std::thread::scope(|s| {
         s.spawn(move || {
-            websocket.run(shareable_ptr, websocket::CHUNK_SIZE, writer_threads, 0)
+            websocket.run(shareable_ptr, websocket::CHUNK_SIZE, websocket_count, 0)
         });
 
         s.spawn(move || {
@@ -138,25 +146,3 @@ pub fn run() {
         //mmap_queue.flush().expect("Failed to flush");
     });
 }
-
-fn send_pong(socket: &mut WebSocket<MaybeTlsStream<TcpStream>>, s: &str) {
-    let mut pong = String::with_capacity(s.len());
-    pong.push_str(&s[..3]);
-    pong.push('o');
-    pong.push_str(&s[4..]);
-    send_message(socket, pong.as_str());
-}
-
-fn send_message(socket: &mut WebSocket<MaybeTlsStream<TcpStream>>, s: &str) {
-    let sent = String::from(s);
-    let msg = Message::text(s);
-    match socket.send(msg) {
-        Ok(()) => {
-            println!("Sent {}", sent);
-        },
-        Err(e) => {
-            println!("Error sending message: {}", e);
-        }
-    }
-}
-
