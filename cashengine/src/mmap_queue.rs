@@ -64,7 +64,7 @@ impl SharedMemoryQueue {
     }
 
     fn initialize_offsets(&mut self, writers_count: usize) {
-        for writer_id in writers_count {
+        for writer_id in 0..writers_count {
             self.offsets[writer_id] = self.chunk_size * writer_id;
             println!("SharedMemoryQueue writer_id {} initialized with offset {}", writer_id, self.offsets[writer_id]);
         }
@@ -134,7 +134,20 @@ impl SharedMemoryQueue {
         log_file
     }
 
-    pub fn write(&mut self, writer_id: usize) {
+    pub fn get_read_buffer(&self, writer_id: usize) -> &u8 {
+        &self.read_buffer[writer_id]
+    }
+
+    pub fn write(&mut self, writer_id: usize,
+
+                 asdasdasd
+
+
+
+                 asd
+
+                 asd
+                 message: &[u8]) {
         if self.offsets[writer_id] + self.chunk_size > self.file_size {
             self.offsets[writer_id] = self.chunk_size * writer_id;
         }
@@ -188,7 +201,7 @@ impl SharedMemoryQueue {
         }
     }
 
-    pub fn read_next_mesage(&mut self) {
+    pub fn read_next_message(&mut self) {
         let start_ptr: *mut u8 = self.shareable_ptr.0;
 
         let mut read_counts = vec![0; self.writers_count];

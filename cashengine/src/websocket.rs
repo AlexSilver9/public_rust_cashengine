@@ -1,9 +1,9 @@
-use crate::mmap_queue;
-use std::fmt::Write;
-use std::net::TcpStream;
-use std::{io, str};
-use std::io::Read;
+use crate::mmap_queue::SharedMemoryQueue;
 use flate2::read::MultiGzDecoder;
+use std::io::Read;
+use std::net::TcpStream;
+use std::sync::{Arc, Mutex};
+use std::{io, str};
 use tungstenite::stream::MaybeTlsStream;
 use tungstenite::{Message, WebSocket};
 // non-blocking: https://github.com/haxpor/bybit-shiprekt/blob/6c3c5693d675fc997ce5e76df27e571f2aaaf291/src/main.rs
@@ -14,16 +14,17 @@ pub const CHUNK_SIZE: usize = 1024;
 static mut BUFFER: [u8; CHUNK_SIZE] = [0; CHUNK_SIZE];
 
 pub struct CeWebSocket {
+    id: usize,
     socket: WebSocket<MaybeTlsStream<TcpStream>>,
     max_size: usize,
 }
 
 impl CeWebSocket {
-    pub fn connect(url: &str) -> Result<CeWebSocket, tungstenite::Error> {
+    pub fn connect(id: usize, url: &str) -> Result<CeWebSocket, tungstenite::Error> {
         let result = tungstenite::connect(url);
         match result {
             Ok((sock, response)) => {
-                // Uncomment these lines if you need to debug the response
+                // Uncomment these lines to debug the response
                 //println!("Connected to the server");
                 //println!("Response HTTP code: {}", response.status());
                 //println!("Response contains the following headers:");
@@ -32,6 +33,7 @@ impl CeWebSocket {
                 //}
 
                 Ok(CeWebSocket {
+                    id,
                     socket: sock,
                     max_size: 0,
                 })
@@ -44,18 +46,10 @@ impl CeWebSocket {
         self.send_message(request);
     }
 
-    pub fn run<'a>(self, start_ptr: mmap_queue::ShareablePtr, chunk_size: usize, total_size: usize, id: usize) {
-        let mut socket = self.socket;
-        let max_size = self.max_size;
-
-        let start_ptr = start_ptr;
-        let start_ptr: *mut u8 = start_ptr.0;
-        let mut value = String::with_capacity(chunk_size);
-        let mut offset = chunk_size * id;
+    pub fn run<'a>(&mut self, shared_memory_queue: &Arc<Mutex<SharedMemoryQueue>>) {
         // TODO: On Linux use tmpfs shared memory: let mut synchronizer = Synchronizer::new("/dev/shm/hello_world".as_ref());
-        let mut local_max_size = max_size;
         loop {
-            let msg = match socket.read() {
+            let msg = match self.socket.read() {
                 Ok(msg) => msg,
                 Err(e) => {
                     eprintln!("Error reading message: {}", e);
@@ -76,24 +70,13 @@ impl CeWebSocket {
                                     println!("Received ping from websocket server: {}", message);
                                     self.send_pong(message);
                                 } else {
-                                    while offset + chunk_size <= total_size {
-                                        value.clear();
-                                        write!(&mut value, "{}", str::from_utf8_unchecked(&BUFFER[..size])).expect("TODO: panic message");
-                                        assert_eq!(true, value.len() <= chunk_size);
-
-                                        std::ptr::copy_nonoverlapping(
-                                            value.as_ptr(),
-                                            start_ptr.add(offset),
-                                            chunk_size,
-                                        );
-                                        offset += chunk_size * id;
-                                    }
-                                    std::sync::atomic::fence(std::sync::atomic::Ordering::Acquire);
+                                    let mut queue = shared_memory_queue.lock().unwrap();
+                                    queue.write(self.id, &BUFFER[..size]);
                                 }
-                                if size > local_max_size {
-                                    local_max_size = size;
+                                if size > self.max_size {
+                                    self.max_size = size;
                                 }
-                                println!("Max size in bytes: {}", local_max_size);
+                                println!("Max size in bytes: {}", self.max_size);
                             }
                             Err(e) => eprintln!("Failed to parse message: {:?}: {:?}", e, String::from_utf8_lossy(&vec)),
                         }
@@ -103,14 +86,14 @@ impl CeWebSocket {
                     match close_frame {
                         Some(reason) => {
                             println!("Connection closed by server with reason: {}", reason);
-                            match socket.close(None) {
+                            match self.socket.close(None) {
                                 Ok(()) => println!("Closed connection to server"),
                                 Err(e) => println!("Failed to close connection to sever: {}", e),
                             }
                         },
                         None => {
                             println!("Connection closed by server without reason");
-                            match socket.close(None) {
+                            match self.socket.close(None) {
                                 Ok(()) => println!("Closed connection to server"),
                                 Err(e) => println!("Failed to close connection to server: {}", e),
                             }
