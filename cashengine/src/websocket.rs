@@ -47,7 +47,6 @@ impl CeWebSocket {
     }
 
     pub fn run<'a>(&mut self, shared_memory_queue: &Arc<Mutex<SharedMemoryQueue>>) {
-        // TODO: On Linux use tmpfs shared memory: let mut synchronizer = Synchronizer::new("/dev/shm/hello_world".as_ref());
         loop {
             let msg = match self.socket.read() {
                 Ok(msg) => msg,
@@ -71,7 +70,7 @@ impl CeWebSocket {
                                     self.send_pong(message);
                                 } else {
                                     let mut queue = shared_memory_queue.lock().unwrap();
-                                    queue.write(self.id, &BUFFER[..size]);
+                                    queue.write(self.id, &BUFFER[..size], size);
                                 }
                                 if size > self.max_size {
                                     self.max_size = size;

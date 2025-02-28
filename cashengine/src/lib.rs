@@ -3,6 +3,7 @@ mod rest_client;
 mod symbol;
 mod websocket;
 pub mod mmap_queue;
+mod string_u8_util;
 
 use crate::mmap_queue::SharedMemoryQueue;
 use crate::time_util::print_systemtime;
@@ -10,14 +11,17 @@ use std::io::Read;
 use std::ops::Deref;
 use std::sync::{Arc, Mutex};
 
-const MMAP_FILE_SIZE: usize = 1024/*b*/ * 1024/*kb*/; // * 1024/*mb*/; // * 10/*gb*/; // TODO: Make this configurable
+const MMAP_FILE_SIZE: usize = 1024/*b*/; // * 1024/*kb*/; // * 1024/*mb*/; // * 10/*gb*/; // TODO: Make this configurable
 
 pub fn run() {
     print_systemtime();
 
+    let throttle: bool = false; // TODO: Make this configurable
+
     let websocket_url = "wss://api-aws.huobi.pro/ws";
     let websocket_count = 1;
 
+    // TODO: On Linux use tmpfs shared memory: let mut synchronizer = Synchronizer::new("/dev/shm/hello_world".as_ref());
     let mmap_file_path = "/tmp/tick.mmap";
     let log_file_path = "/tmp/rust_cashengine.log"; // TODO: Make this configurable
     let mut shared_memory_queue = Arc::new(Mutex::new(SharedMemoryQueue::create(
@@ -46,10 +50,11 @@ pub fn run() {
                     .with_visible_symbols()
                     .with_listed_symbols()
                     .with_country_enabled_symbols();
-                symbols.print_compact();
 
                 if let Err(err) = symbols.get_error() {
                     panic!("Requested symbols contained an error. Exchange error: {err}")
+                } else {
+                    // symbols.print_compact();
                 }
 
 
@@ -63,9 +68,11 @@ pub fn run() {
                 if subscribe_request.ends_with(',') {
                     subscribe_request.pop(); // Remove the last comma
                 }
-                subscribe_request.push_str("\n],\n\"id\": \"id1\"\n}");
+                subscribe_request.push_str("\n],\n\"id\": \"id");
+                subscribe_request.push_str(id.to_string().as_str());
+                subscribe_request.push_str("\"\n}");
 
-                let mut websocket = websocket::CeWebSocket::connect(1, websocket_url)
+                let mut websocket = websocket::CeWebSocket::connect(id, websocket_url)
                     .expect(format!("Failed to connect websocket url: {}", websocket_url).as_str());
                 let (_, response) = tungstenite::connect(websocket_url)
                     .expect(format!("Failed to connect websocket url: {}", websocket_url).as_str());
@@ -85,10 +92,17 @@ pub fn run() {
         let main_thread_queue = Arc::clone(&shared_memory_queue);
         let main_thread = s.spawn(move || {
             println!("Starting IPC Reader Thread for {} Ids", websocket_count);
-            for id in 0..websocket_count {
-                let queue = main_thread_queue.lock().unwrap();
-                let message = queue.get_read_buffer(id);
-                println!("Received message: {}", message);
+            loop {
+                if throttle {
+                    std::thread::sleep(std::time::Duration::from_secs(1));
+                }
+                let mut queue = main_thread_queue.lock().unwrap();
+                queue.read_next_message();
+                let message = queue.get_read_buffer();
+                let message = unsafe { string_u8_util::null_terminated_u8_to_utf8_str_unchecked(message) };
+                if ! message.is_empty() {
+                    println!("Received message: '{}'", message);
+                }
             }
         });
         main_thread.join().unwrap();

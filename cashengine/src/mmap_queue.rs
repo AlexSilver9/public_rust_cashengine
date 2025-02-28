@@ -6,6 +6,17 @@ use std::ptr::write_bytes;
 use std::time::{SystemTime, UNIX_EPOCH};
 use std::vec;
 
+const MAX_USIZE_STRING_LENGTH: usize = {
+    const fn num_digits(mut n: usize) -> usize {
+        let mut count = 0;
+        while n > 0 {
+            n /= 10;
+            count += 1;
+        }
+        count
+    }
+    num_digits(usize::MAX)
+};
 
 #[derive(Copy, Clone)]
 pub struct ShareablePtr(pub(crate) *mut u8);
@@ -18,6 +29,7 @@ unsafe impl Send for ShareablePtr {
 }
 
 pub struct SharedMemoryQueue {
+    sequence: usize,
     mmap_file: File,
     mmap: MmapMut,
     writers_count: usize,
@@ -47,6 +59,7 @@ impl SharedMemoryQueue {
         let shareable_ptr = ShareablePtr(start_ptr);
         let log_file = SharedMemoryQueue::create_log_file(log_file_path);
         let mut shm_queue = SharedMemoryQueue {
+            sequence: 0,
             mmap_file,
             mmap,
             writers_count,
@@ -134,20 +147,11 @@ impl SharedMemoryQueue {
         log_file
     }
 
-    pub fn get_read_buffer(&self, writer_id: usize) -> &u8 {
-        &self.read_buffer[writer_id]
+    pub fn get_read_buffer(&mut self) -> &[u8] {
+        &self.read_buffer[..self.chunk_size]
     }
 
-    pub fn write(&mut self, writer_id: usize,
-
-                 asdasdasd
-
-
-
-                 asd
-
-                 asd
-                 message: &[u8]) {
+    pub fn write(&mut self, writer_id: usize, message: &[u8]) {
         if self.offsets[writer_id] + self.chunk_size > self.file_size {
             self.offsets[writer_id] = self.chunk_size * writer_id;
         }
@@ -164,11 +168,14 @@ impl SharedMemoryQueue {
                 Err(err) => println!("SharedMemoryQueue writer_id {} failed getting duration for UNIX epoch: {}", writer_id, err),
             }
 
-            write!(&mut self.write_buffers[writer_id], "{}:{}{:11}\n", writer_id, micro_timestamp, self.offsets[writer_id]).unwrap();
+            let message = String::from_utf8(message.to_vec()).unwrap(); // TODO: String and avoid write!(), use copy_nonoverlapping() from below directly
+            write!(&mut self.write_buffers[writer_id], "{}:{}:{}:{:0width$}:{}",
+                   self.sequence, writer_id, micro_timestamp, self.offsets[writer_id], message, width = MAX_USIZE_STRING_LENGTH).unwrap();
+            self.sequence += 1;
             if self.write_buffers[writer_id].len() > self.chunk_size {
                 panic!("SharedMemoryQueue writer_id {} buffer size {} is longer than chunk size: {}", writer_id, self.write_buffers[writer_id].len(), self.chunk_size);
             }
-            println!("SharedMemoryQueue writer_id {} wrote at offset {} at time {}", writer_id, self.offsets[writer_id], micro_timestamp);
+            println!("SharedMemoryQueue writer_id {} starts writing at offset {} at time {}", writer_id, self.offsets[writer_id], micro_timestamp);
 
             let write_start = SystemTime::now();
             unsafe {
