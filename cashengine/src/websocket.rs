@@ -10,13 +10,12 @@ pub const CHUNK_SIZE: usize = 320;
 
 pub struct CeWebSocket {
     buffer: [u8; CHUNK_SIZE],
-    id: usize,
     socket: WebSocket<MaybeTlsStream<TcpStream>>,
     max_size: usize,
 }
 
 impl CeWebSocket {
-    pub fn connect(id: usize, url: &str) -> Result<CeWebSocket, tungstenite::Error> {
+    pub fn connect(url: &str) -> Result<CeWebSocket, tungstenite::Error> {
         let result = tungstenite::connect(url);
         match result {
             Ok((sock, response)) => {
@@ -30,7 +29,6 @@ impl CeWebSocket {
 
                 Ok(CeWebSocket {
                     buffer: [0; CHUNK_SIZE],
-                    id,
                     socket: sock,
                     max_size: 0,
                 })
@@ -117,11 +115,10 @@ impl CeWebSocket {
     }
 
     fn send_message(&mut self, s: &str) {
-        let sent = String::from(s);
         let msg = Message::text(s);
         match self.socket.send(msg) {
             Ok(()) => {
-                //println!("Sent {}", sent);
+                tracing::trace!("Sent {}", String::from(s));
             },
             Err(e) => {
                 println!("Error sending message: {}", e);

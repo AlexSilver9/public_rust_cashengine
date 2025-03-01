@@ -16,8 +16,6 @@ use crate::shm_reader::SharedMemoryReader;
 use crate::time_util::print_systemtime;
 use std::collections::HashMap;
 use std::fs::File;
-use std::io::{Read, Write};
-use std::ops::Deref;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -111,7 +109,7 @@ pub fn run() {
                 subscribe_request.push_str(id.to_string().as_str());
                 subscribe_request.push_str("\"\n}");
 
-                let mut websocket = websocket::CeWebSocket::connect(id, websocket_url)
+                let mut websocket = websocket::CeWebSocket::connect(websocket_url)
                     .expect(format!("Failed to connect websocket url: {}", websocket_url).as_str());
                 let (_, response) = tungstenite::connect(websocket_url)
                     .expect(format!("Failed to connect websocket url: {}", websocket_url).as_str());
@@ -126,8 +124,6 @@ pub fn run() {
                     if let Some(_) = message.windows(STATUS.len()).position(|window| window == STATUS) {
                         return;
                     }
-
-                    let str_message = std::str::from_utf8(message).expect("Invalid UTF-8 sequence");
 
                     if let Some(market_index_start) = message.windows(MARKET_DOT.len()).position(|window| window == MARKET_DOT) {
                         let market_index_start = market_index_start + "market.".len();
