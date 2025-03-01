@@ -1,4 +1,4 @@
-use crate::mmap_queue::SharedMemoryQueue;
+use crate::shm_block_writer::SharedMemoryWriter;
 use flate2::read::MultiGzDecoder;
 use std::io::Read;
 use std::net::TcpStream;
@@ -46,7 +46,10 @@ impl CeWebSocket {
         self.send_message(request);
     }
 
-    pub fn run<'a>(&mut self, shared_memory_queue: &Arc<Mutex<SharedMemoryQueue>>) {
+    pub fn run<F>(&mut self, mut on_message: F)
+    where
+        F: FnMut(&[u8]),
+    {
         loop {
             let msg = match self.socket.read() {
                 Ok(msg) => msg,
@@ -69,8 +72,7 @@ impl CeWebSocket {
                                     println!("Received ping from websocket server: {}", message);
                                     self.send_pong(message);
                                 } else {
-                                    let mut queue = shared_memory_queue.lock().unwrap();
-                                    queue.write(self.id, &BUFFER[..size], size);
+                                    on_message( &BUFFER[..size]);
                                 }
                                 if size > self.max_size {
                                     self.max_size = size;
