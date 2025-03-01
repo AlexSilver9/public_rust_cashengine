@@ -1,10 +1,8 @@
-use flate2::read::MultiGzDecoder;
-use std::io::Read;
+use crate::compression;
 use std::net::TcpStream;
-use std::{io, str};
+use std::str;
 use tungstenite::stream::MaybeTlsStream;
 use tungstenite::{Message, WebSocket};
-use crate::compression;
 // non-blocking: https://github.com/haxpor/bybit-shiprekt/blob/6c3c5693d675fc997ce5e76df27e571f2aaaf291/src/main.rs
 
 pub const CHUNK_SIZE: usize = 320;

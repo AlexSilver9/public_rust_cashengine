@@ -1,5 +1,5 @@
-use std::io;
 use flate2::read::MultiGzDecoder;
+use std::io;
 use std::io::Read;
 
 fn gz_inflate_to_string(bytes: &Vec<u8>) -> io::Result<String> {
