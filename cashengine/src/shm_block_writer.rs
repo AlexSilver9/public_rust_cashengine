@@ -39,10 +39,10 @@ impl<'a> SharedMemoryWriter<'a> {
         let block_size = chunk_size * chunk_count;
         let mut mmap = SharedMemoryWriter::map_file_to_memory(mmap_file, writer_id, block_size);
         let start_ptr =
-            SharedMemoryWriter::initialize_start_ptr_to_mapped_memory(&mut mmap, writer_id, writer_id * block_size);
+            SharedMemoryWriter::initialize_start_ptr_to_mapped_memory(&mut mmap, writer_id);
         let shareable_ptr = ShareablePtr(start_ptr);
         let log_file = SharedMemoryWriter::create_log_file(log_file_path);
-        let mut shm_writer = SharedMemoryWriter {
+        let shm_writer = SharedMemoryWriter {
             sequence: 0,
             mmap_file,
             mmap,
@@ -57,24 +57,6 @@ impl<'a> SharedMemoryWriter<'a> {
         shm_writer
     }
 
-    fn open(file_path: &str) -> File {
-        println!("Opening IPC file for write: {}", file_path);
-        let path_buf = PathBuf::from(file_path);
-        let open_result = File::options()
-            .read(false)
-            .write(true)
-            .create(false)
-            .truncate(false)
-            .open(path_buf);
-        let file: File = match open_result {
-            Ok(file) => file,
-            Err(e) => {
-                panic!("Failed to create IPC file: {}", e);
-            }
-        };
-        file
-    }
-
     fn map_file_to_memory(file: &File, writer_id: usize, block_size: usize) -> MmapMut {
         println!("Mapping file to memory");
         unsafe {
@@ -85,29 +67,26 @@ impl<'a> SharedMemoryWriter<'a> {
             {
                 Ok(mmap) => mmap,
                 Err(e) => {
-                    panic!("Failed to map IPC file to memory: {}", e);
+                    panic!("Failed to map SHM file to memory: {}", e);
                 }
             }
         }
     }
 
-    fn initialize_start_ptr_to_mapped_memory(mmap: &mut MmapMut, writer_id: usize, block_size: usize) -> *mut u8 {
-        println!("Initializing IPC file with zeros");
+    fn initialize_start_ptr_to_mapped_memory(mmap: &mut MmapMut, writer_id: usize) -> *mut u8 {
+        println!("Initializing SHM file with zeros");
         let start_ptr = mmap.as_mut_ptr();
         println!("Got for writer_id {} the start_ptr: {:p}", writer_id, start_ptr);
-        /*unsafe {
-            write_bytes(start_ptr, 0u8, block_size);
-        }*/
         start_ptr
     }
 
     fn create_log_file(log_file_path: &str) -> File {
-        println!("Opening IPC logfile at {}", log_file_path);
+        println!("Opening SHM logfile at {}", log_file_path);
         let log_file = File::open(log_file_path);
         let log_file = match log_file {
             Ok(file) => file,
             Err(e) => {
-                panic!("Failed to create IPC logfile: {}", e);
+                panic!("Failed to create SHM logfile: {}", e);
             }
         };
         log_file
@@ -156,9 +135,9 @@ impl<'a> SharedMemoryWriter<'a> {
             );
         }
 
+        /*
         let write_duration = self.end_bench(write_start);
-
-        /*println!(
+        println!(
             "SharedMemoryWriter writer_id {} wrote at offset {} at time {}. Write took {} μs",
             self.writer_id,
             start_ptr.addr(),

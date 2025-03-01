@@ -59,14 +59,14 @@ impl<'a> SharedMemoryReader<'a> {
             match MmapOptions::new().offset(0).len(file_size).map_mut(file) {
                 Ok(mmap) => mmap,
                 Err(e) => {
-                    panic!("Failed to map IPC file to memory: {}", e);
+                    panic!("Failed to map SHM file to memory: {}", e);
                 }
             }
         }
     }
 
     fn initialize_start_ptr_to_mapped_memory(mmap: &mut MmapMut, file_size: usize) -> *mut u8 {
-        println!("Initializing IPC file with zeros");
+        println!("Initializing SHM file with zeros");
         let start_ptr = mmap.as_mut_ptr();
         unsafe {
             write_bytes(start_ptr.offset(0), 0u8, file_size);
@@ -75,12 +75,12 @@ impl<'a> SharedMemoryReader<'a> {
     }
 
     fn create_log_file(log_file_path: &str) -> File {
-        println!("Creating IPC logfile at {}", log_file_path);
+        println!("Creating SHM logfile at {}", log_file_path);
         let log_file = File::create(log_file_path);
         let log_file = match log_file {
             Ok(file) => file,
             Err(e) => {
-                panic!("Failed to create IPC logfile: {}", e);
+                panic!("Failed to create SHM logfile: {}", e);
             }
         };
         log_file
