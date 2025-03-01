@@ -160,7 +160,6 @@ pub fn run() {
             let shm_file = Arc::clone(&shm_file);
             let mut shm_reader = SharedMemoryReader::create(
                 &&shm_file,
-                log_file_path,
                 websocket::CHUNK_SIZE,
                 websocket_count * MARKETS_PER_WEBSOCKET,
             );

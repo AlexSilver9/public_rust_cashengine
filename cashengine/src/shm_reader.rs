@@ -17,7 +17,6 @@ unsafe impl Send for ShareablePtr {
 pub struct SharedMemoryReader<'a> {
     mmap_file: &'a File,
     mmap: MmapMut,
-    log_file: File,
     chunk_size: usize,
     chunk_count: usize,
     file_size: usize,
@@ -29,7 +28,6 @@ pub struct SharedMemoryReader<'a> {
 impl<'a> SharedMemoryReader<'a> {
     pub fn create(
         mmap_file: &'a File,
-        log_file_path: &str,
         chunk_size: usize,
         chunk_count: usize,
     ) -> SharedMemoryReader<'a> {
@@ -38,11 +36,9 @@ impl<'a> SharedMemoryReader<'a> {
         let start_ptr =
             SharedMemoryReader::initialize_start_ptr_to_mapped_memory(&mut mmap, file_size);
         let shareable_ptr = ShareablePtr(start_ptr);
-        let log_file = SharedMemoryReader::create_log_file(log_file_path);
         let shm_reader = SharedMemoryReader {
             mmap_file,
             mmap,
-            log_file,
             chunk_size,
             chunk_count,
             file_size,
@@ -74,18 +70,6 @@ impl<'a> SharedMemoryReader<'a> {
         start_ptr
     }
 
-    fn create_log_file(log_file_path: &str) -> File {
-        println!("Creating SHM logfile at {}", log_file_path);
-        let log_file = File::create(log_file_path);
-        let log_file = match log_file {
-            Ok(file) => file,
-            Err(e) => {
-                panic!("Failed to create SHM logfile: {}", e);
-            }
-        };
-        log_file
-    }
-
     pub fn read_next_message(&mut self) -> &[u8] {
         let start_ptr: *mut u8 = self.shareable_ptr.0;
 
@@ -95,7 +79,7 @@ impl<'a> SharedMemoryReader<'a> {
         // It is not necessary when using `std::thread::scope` but may be necessary in your case.
         std::sync::atomic::fence(std::sync::atomic::Ordering::Acquire);
 
-        let read_start = self.start_bench();
+        //let read_start = self.start_bench();
 
         unsafe {
             // SAFETY: We never overlap on writes.
