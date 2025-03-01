@@ -20,7 +20,6 @@ pub struct SharedMemoryWriter<'a> {
     mmap: MmapMut,
     writer_id: usize,
     chunk_size: usize,
-    chunk_count: usize,
     shareable_ptr: ShareablePtr,
     write_buffer: String,
 }
@@ -43,7 +42,6 @@ impl<'a> SharedMemoryWriter<'a> {
             mmap,
             writer_id,
             chunk_size,
-            chunk_count,
             shareable_ptr,
             write_buffer: String::with_capacity(chunk_size),
         };
