@@ -2,7 +2,6 @@ use crate::util::MAX_USIZE_STRING_LENGTH;
 use memmap2::{MmapMut, MmapOptions};
 use std::fmt::Write;
 use std::fs::File;
-use std::path::PathBuf;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 #[derive(Copy, Clone)]
@@ -121,9 +120,9 @@ impl<'a> SharedMemoryWriter<'a> {
             self.writer_id,
             self.shareable_ptr.0.addr() + target_offset,
             micro_timestamp
-        );*/
+        );
+        let write_start = SystemTime::now();*/
 
-        let write_start = SystemTime::now();
         unsafe {
             // SAFETY: We never overlap on writes.
             // Pointer is living because we using scoped threads.

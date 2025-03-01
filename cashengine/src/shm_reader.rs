@@ -39,7 +39,7 @@ impl<'a> SharedMemoryReader<'a> {
             SharedMemoryReader::initialize_start_ptr_to_mapped_memory(&mut mmap, file_size);
         let shareable_ptr = ShareablePtr(start_ptr);
         let log_file = SharedMemoryReader::create_log_file(log_file_path);
-        let mut shm_reader = SharedMemoryReader {
+        let shm_reader = SharedMemoryReader {
             mmap_file,
             mmap,
             log_file,
@@ -107,94 +107,13 @@ impl<'a> SharedMemoryReader<'a> {
             );
         }
 
+        /*
         let read_duration = self.end_bench(read_start);
-
-        /*println!(
+        println!(
             "SharedMemoryReader read chunk_id {} at offset {} in {} μs",
             self.current_chunk_id,
             target_offset,
             read_duration.as_micros()
-        );*/
-
-        let parse_start = SystemTime::now();
-        let value = String::from_utf8(self.read_buffer.to_vec())
-            .unwrap()
-            .trim()
-            .to_string();
-        /*match value.find(':') {
-            Some(index) => {
-                println!("SharedMemoryReader read current_chunk_id {} at offset {}, value: {}",
-                         self.current_chunk_id, target_offset, value);
-                match value.rfind(' ') {
-                    Some(start_index) => {
-                        match value.rfind('\n') {
-                            Some(end_index) => {
-                                let offset = String::from(&value[start_index + 1..end_index]);
-                                let offset: usize = match offset.parse() {
-                                    Ok(num) => num,
-                                    Err(e) => {
-                                        eprintln!("SharedMemoryReader read chunk_id {} failed to parse offset: {}, error: {}", self.current_chunk_id, offset, e);
-                                        0
-                                    }
-                                };
-                                //assert_eq!(offset, self.offsets[self.current_writer_id]);
-                            }
-                            _ => {}
-                        }
-                    }
-                    _ => {}
-                }
-                use std::io::Write;
-                let timestamp_str = match &value.find(' ') {
-                    Some(to) => &value[index + 1..*to],
-                    None => &value[index + 1..],
-                };
-
-                let timestamp: u128 = match timestamp_str.parse() {
-                    Ok(t) => t,
-                    Err(e) => {
-                        eprintln!("SharedMemoryReader read writer_id {} failed to parse timestamp: {}, error: {}", self.current_writer_id, timestamp_str, e);
-                        0
-                    }
-                };
-
-                let current_system_time = SystemTime::now();
-                match current_system_time.duration_since(UNIX_EPOCH) {
-                    Ok(duration_since_epoch) => {
-                        let micro_seconds_timestamp = duration_since_epoch.as_micros();
-                        let latency = micro_seconds_timestamp - timestamp;
-                        println!("SharedMemoryReader read writer_id {} write time: {}, Read time: {}, Latency: {} μs", self.current_writer_id, timestamp, micro_seconds_timestamp, latency);
-                    },
-                    Err(err) => println!("SharedMemoryReader read writer_id {} failed getting duration for UNIX epoch: {}", self.current_writer_id, err),
-                }
-
-                let write_result = self.log_file.write_all(value.as_bytes());
-                match write_result {
-                    Ok(_) => {
-                        match self.log_file.write_all(b"\n") {
-                            Ok(_) => {},
-                            Err(e) => println!("SharedMemoryReader read writer_id {} failed to write newline to log file: {}", self.current_writer_id, e),
-                        }
-                        match self.log_file.flush() {
-                            Ok(_) => {},
-                            Err(e) => println!("SharedMemoryReader read writer_id {} failed to flush log file: {}", self.current_writer_id, e),
-                        }
-                    },
-                    Err(e) => println!("SharedMemoryReader read writer_id {} failed to write to log file: {}", self.current_writer_id, e),
-                }
-            },
-            None => {
-                //println!("Reader id {} remains at offset {}", i, offsets[i]);
-                //println!("No index to poll");
-            }
-        }
-         */
-        let parse_end = SystemTime::now();
-        let parse_duration = parse_end.duration_since(parse_start).unwrap();
-        /*println!(
-            "SharedMemoryReader with chunk_id {} parsed to string with duration: {} μs",
-            self.current_chunk_id,
-            parse_duration.as_micros()
         );*/
 
         self.next_chunk();
