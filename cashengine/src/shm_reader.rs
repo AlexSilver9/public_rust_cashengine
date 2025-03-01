@@ -1,7 +1,5 @@
 use memmap2::{MmapMut, MmapOptions};
-use std::fmt::Write;
 use std::fs::File;
-use std::path::PathBuf;
 use std::ptr::write_bytes;
 use std::time::{Duration, SystemTime};
 use std::vec;

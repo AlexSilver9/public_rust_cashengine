@@ -10,6 +10,7 @@ mod string_u8_util;
 mod util;
 mod metrics;
 
+use crate::metrics::P95Tracker;
 use crate::shm_block_writer::SharedMemoryWriter;
 use crate::shm_reader::SharedMemoryReader;
 use crate::time_util::print_systemtime;
@@ -20,7 +21,6 @@ use std::ops::Deref;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
-use crate::metrics::{P95Tracker};
 use tracing::{event, Level};
 
 static STATUS: &[u8] = b"status";

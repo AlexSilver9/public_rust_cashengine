@@ -1,8 +1,6 @@
-use crate::shm_block_writer::SharedMemoryWriter;
 use flate2::read::MultiGzDecoder;
 use std::io::Read;
 use std::net::TcpStream;
-use std::sync::{Arc, Mutex};
 use std::{io, str};
 use tungstenite::stream::MaybeTlsStream;
 use tungstenite::{Message, WebSocket};
