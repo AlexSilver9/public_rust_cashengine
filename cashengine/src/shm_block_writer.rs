@@ -21,7 +21,6 @@ pub struct SharedMemoryWriter<'a> {
     writer_id: usize,
     chunk_size: usize,
     chunk_count: usize,
-    block_size: usize,
     shareable_ptr: ShareablePtr,
     write_buffer: String,
 }
@@ -45,7 +44,6 @@ impl<'a> SharedMemoryWriter<'a> {
             writer_id,
             chunk_size,
             chunk_count,
-            block_size,
             shareable_ptr,
             write_buffer: String::with_capacity(chunk_size),
         };
