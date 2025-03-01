@@ -1,5 +1,7 @@
 mod rest_client;
 mod symbol;
+mod currency;
+mod market;
 mod time_util;
 mod websocket;
 //pub mod shm_interlaced_queue;
@@ -19,8 +21,6 @@ use std::collections::HashMap;
 use std::fs::File;
 use std::path::PathBuf;
 use std::sync::Arc;
-use std::time::{SystemTime, UNIX_EPOCH};
-use tracing::{event, Level};
 
 static STATUS: &[u8] = b"status";
 static MARKET_DOT: &[u8] = b"market.";
@@ -39,12 +39,10 @@ pub fn run() {
     // TODO: On Linux use tmpfs shared memory: let mut synchronizer = Synchronizer::new("/dev/shm/hello_world".as_ref());
     let mmap_file_path = "/tmp/ticks.mmap";
 
-    let symbols_file_path = "/tmp/symbols.json"; // TODO: Make this configurable
-    let request_url = format!(
-        "https://api-aws.huobi.pro{path}",
-        path = "/v1/settings/common/symbols"
-    );
-    let body = rest_client::send_request(&request_url).expect("Failed to get symbols");
+    let rest_url = "https://api-aws.huobi.pro";
+
+    let symbols_url = format!("{rest_url}{path}",path = symbol::PATH);
+    let body = rest_client::send_request(&symbols_url).expect("Failed to get symbols");
     let mut symbols = symbol::Symbols::from(&body).expect("Failed to parse symbols");
     symbols = symbols
         .with_online_symbols()
@@ -52,13 +50,40 @@ pub fn run() {
         .with_cancel_enabled_symbols()
         .with_visible_symbols()
         .with_listed_symbols()
-        .with_country_enabled_symbols();
-
+        .with_country_enabled();
     if let Err(err) = symbols.get_error() {
         panic!("Requested symbols contained an error. Exchange error: {err}")
     } else {
         symbols.print_compact();
     }
+
+
+    let currencies_url = format!("{rest_url}{path}", path = currency::PATH);
+    let body = rest_client::send_request(&currencies_url).expect("Failed to get currencies");
+    let mut currencies = currency::Currencies::from(&body).expect("Failed to parse currencies");
+    currencies = currencies
+        .with_online_currencies()
+        .with_country_enabled();
+    if let Err(err) = currencies.get_error() {
+        panic!("Requested currencies contained an error. Exchange error: {err}")
+    } else {
+        //currencies.print_compact();
+    }
+
+    let markets_url = format!("{rest_url}{path}", path = market::PATH);
+    let body = rest_client::send_request(&markets_url).expect("Failed to get markets");
+    let mut markets = market::Markets::from(&body).expect("Failed to parse markets");
+    markets = markets
+        .with_online_markets();
+    if let Err(err) = markets.get_error() {
+        panic!("Requested markets contained an error. Exchange error: {err}")
+    } else {
+        //markets.print_compact();
+    }
+
+
+
+
     let symbols = Arc::new(symbols);
 
     let websocket_count = (symbols.len() / MARKETS_PER_WEBSOCKET) + 1;
@@ -169,8 +194,10 @@ pub fn run() {
                 let message =
                     unsafe { string_u8_util::null_terminated_u8_to_utf8_str_unchecked(message) };
                 if !message.is_empty() {
+                    // TODO: Process Message
+
                     //println!("Read message: '{}'", message);
-                    match message.find(':') {
+                    /*match message.find(':') {
                         Some(index) => {
                             let message = &message[index+1..];
                             match message.find(':') {
@@ -209,7 +236,7 @@ pub fn run() {
                             }
                         }
                         _ => ()
-                    }
+                    }*/
                 }
             }
         });
