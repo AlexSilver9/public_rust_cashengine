@@ -9,6 +9,7 @@ pub mod shm_reader;
 mod string_u8_util;
 mod util;
 mod metrics;
+mod compression;
 
 use crate::metrics::P95Tracker;
 use crate::shm_block_writer::SharedMemoryWriter;

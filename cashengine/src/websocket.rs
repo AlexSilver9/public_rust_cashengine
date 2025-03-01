@@ -4,6 +4,7 @@ use std::net::TcpStream;
 use std::{io, str};
 use tungstenite::stream::MaybeTlsStream;
 use tungstenite::{Message, WebSocket};
+use crate::compression;
 // non-blocking: https://github.com/haxpor/bybit-shiprekt/blob/6c3c5693d675fc997ce5e76df27e571f2aaaf291/src/main.rs
 
 pub const CHUNK_SIZE: usize = 320;
@@ -60,7 +61,7 @@ impl CeWebSocket {
                 Message::Binary(bytes) => {
                     let vec = bytes.as_ref().to_vec();
                     unsafe {
-                        match gz_inflate_to_buffer(&vec, &mut self.buffer) {
+                        match compression::gz_inflate_to_buffer(&vec, &mut self.buffer) {
                             Ok(size) => {
                                 if size >= 6 && self.buffer.get_unchecked(..6) == b"{\"ping" {
                                     let message = str::from_utf8_unchecked(&self.buffer[..size]);
@@ -125,17 +126,4 @@ impl CeWebSocket {
             }
         }
     }
-}
-
-
-fn gz_inflate_to_string(bytes: &Vec<u8>) -> io::Result<String> {
-    let mut gz = MultiGzDecoder::new(&bytes[..]);
-    let mut s = String::new();
-    gz.read_to_string(&mut s)?;
-    Ok(s)
-}
-
-fn gz_inflate_to_buffer(bytes: &Vec<u8>, buffer: &mut [u8]) -> io::Result<usize> {
-    let mut gz = MultiGzDecoder::new(&bytes[..]);
-    gz.read(buffer)
 }
