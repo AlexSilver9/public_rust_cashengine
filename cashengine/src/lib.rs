@@ -38,7 +38,6 @@ pub fn run() {
 
     // TODO: On Linux use tmpfs shared memory: let mut synchronizer = Synchronizer::new("/dev/shm/hello_world".as_ref());
     let mmap_file_path = "/tmp/ticks.mmap";
-    let log_file_path = "/tmp/rust_cashengine.log"; // TODO: Make this configurable
 
     let symbols_file_path = "/tmp/symbols.json"; // TODO: Make this configurable
     let request_url = format!(
@@ -78,7 +77,6 @@ pub fn run() {
                 println!("Starting Feed Thread for Id {}", id);
                 let mut shm_writer = SharedMemoryWriter::create(
                     &&shm_file,
-                    log_file_path,
                     id,
                     websocket::CHUNK_SIZE,
                     MARKETS_PER_WEBSOCKET,

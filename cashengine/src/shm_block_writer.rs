@@ -19,7 +19,6 @@ pub struct SharedMemoryWriter<'a> {
     mmap_file: &'a File,
     mmap: MmapMut,
     writer_id: usize,
-    log_file: File,
     chunk_size: usize,
     chunk_count: usize,
     block_size: usize,
@@ -30,7 +29,6 @@ pub struct SharedMemoryWriter<'a> {
 impl<'a> SharedMemoryWriter<'a> {
     pub fn create(
         mmap_file: &'a File,
-        log_file_path: &str,
         writer_id: usize,
         chunk_size: usize,
         chunk_count: usize,
@@ -40,13 +38,11 @@ impl<'a> SharedMemoryWriter<'a> {
         let start_ptr =
             SharedMemoryWriter::initialize_start_ptr_to_mapped_memory(&mut mmap, writer_id);
         let shareable_ptr = ShareablePtr(start_ptr);
-        let log_file = SharedMemoryWriter::create_log_file(log_file_path);
         let shm_writer = SharedMemoryWriter {
             sequence: 0,
             mmap_file,
             mmap,
             writer_id,
-            log_file,
             chunk_size,
             chunk_count,
             block_size,
@@ -77,18 +73,6 @@ impl<'a> SharedMemoryWriter<'a> {
         let start_ptr = mmap.as_mut_ptr();
         println!("Got for writer_id {} the start_ptr: {:p}", writer_id, start_ptr);
         start_ptr
-    }
-
-    fn create_log_file(log_file_path: &str) -> File {
-        println!("Opening SHM logfile at {}", log_file_path);
-        let log_file = File::open(log_file_path);
-        let log_file = match log_file {
-            Ok(file) => file,
-            Err(e) => {
-                panic!("Failed to create SHM logfile: {}", e);
-            }
-        };
-        log_file
     }
 
     pub fn write(&mut self, chunk_index: usize, message: &[u8]) {
