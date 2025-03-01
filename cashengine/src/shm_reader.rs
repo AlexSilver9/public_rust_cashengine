@@ -17,8 +17,7 @@ unsafe impl Send for ShareablePtr {
 }
 
 pub struct SharedMemoryReader<'a> {
-    mmap_file_path: &'a str,
-    mmap_file: File,
+    mmap_file: &'a File,
     mmap: MmapMut,
     log_file: File,
     chunk_size: usize,
@@ -31,20 +30,18 @@ pub struct SharedMemoryReader<'a> {
 
 impl<'a> SharedMemoryReader<'a> {
     pub fn create(
-        mmap_file_path: &'a str,
+        mmap_file: &'a File,
         log_file_path: &str,
         chunk_size: usize,
         chunk_count: usize,
     ) -> SharedMemoryReader<'a> {
         let file_size = chunk_size * chunk_count;
-        let mmap_file = SharedMemoryReader::open(&mmap_file_path);
         let mut mmap = SharedMemoryReader::map_file_to_memory(&mmap_file, file_size);
         let start_ptr =
             SharedMemoryReader::initialize_start_ptr_to_mapped_memory(&mut mmap, file_size);
         let shareable_ptr = ShareablePtr(start_ptr);
         let log_file = SharedMemoryReader::create_log_file(log_file_path);
         let mut shm_reader = SharedMemoryReader {
-            mmap_file_path,
             mmap_file,
             mmap,
             log_file,
@@ -56,24 +53,6 @@ impl<'a> SharedMemoryReader<'a> {
             current_chunk_id: 0,
         };
         shm_reader
-    }
-
-    fn open(file_path: &str) -> File {
-        println!("Opening IPC file for read: {}", file_path);
-        let path_buf = PathBuf::from(file_path);
-        let open_result = File::options()
-            .read(true)
-            .write(false)
-            .create(false)
-            .truncate(false)
-            .open(path_buf);
-        let file: File = match open_result {
-            Ok(file) => file,
-            Err(e) => {
-                panic!("Failed to create IPC file: {}", e);
-            }
-        };
-        file
     }
 
     fn map_file_to_memory(file: &File, file_size: usize) -> MmapMut {
@@ -132,12 +111,12 @@ impl<'a> SharedMemoryReader<'a> {
 
         let read_duration = self.end_bench(read_start);
 
-        println!(
+        /*println!(
             "SharedMemoryReader read chunk_id {} at offset {} in {} μs",
             self.current_chunk_id,
             target_offset,
             read_duration.as_micros()
-        );
+        );*/
 
         let parse_start = SystemTime::now();
         let value = String::from_utf8(self.read_buffer.to_vec())
@@ -214,11 +193,11 @@ impl<'a> SharedMemoryReader<'a> {
          */
         let parse_end = SystemTime::now();
         let parse_duration = parse_end.duration_since(parse_start).unwrap();
-        println!(
+        /*println!(
             "SharedMemoryReader with chunk_id {} parsed to string with duration: {} μs",
             self.current_chunk_id,
             parse_duration.as_micros()
-        );
+        );*/
 
         self.next_chunk();
         &self.read_buffer[..self.chunk_size]
@@ -231,27 +210,13 @@ impl<'a> SharedMemoryReader<'a> {
         }
     }
 
-    pub fn close(&self) {
-        // Make writes visible for main thread
-        // It is not necessary when using `std::thread::scope` but may be necessary in your case.
-        std::sync::atomic::fence(std::sync::atomic::Ordering::Acquire);
-        let result = self.mmap.flush();
-        match result {
-            Ok(_) => println!(
-                "SharedMemoryReader successfully flushed memory mapped file: {}",
-                self.mmap_file_path
-            ),
-            Err(e) => println!(
-                "SharedMemoryReader failed to flush memory mapped file: {}, error: {}",
-                self.mmap_file_path, e
-            ),
-        }
-    }
-
     fn end_bench(&self, read_start: SystemTime) -> Duration {
         let read_end = SystemTime::now();
-        let read_duration = read_end.duration_since(read_start).unwrap();
-        read_duration
+        let read_duration = read_end.duration_since(read_start);
+        read_duration.unwrap_or_else(|e| {
+            println!("SharedMemoryReader failed getting duration for read: {}", e);
+            Duration::new(0, 0)
+        })
     }
 
     fn start_bench(&self) -> SystemTime {

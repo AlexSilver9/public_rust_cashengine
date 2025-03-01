@@ -18,8 +18,7 @@ unsafe impl Send for ShareablePtr {
 
 pub struct SharedMemoryWriter<'a> {
     sequence: usize,
-    mmap_file_path: &'a str,
-    mmap_file: File,
+    mmap_file: &'a File,
     mmap: MmapMut,
     writer_id: usize,
     log_file: File,
@@ -32,22 +31,20 @@ pub struct SharedMemoryWriter<'a> {
 
 impl<'a> SharedMemoryWriter<'a> {
     pub fn create(
-        mmap_file_path: &'a str,
+        mmap_file: &'a File,
         log_file_path: &str,
         writer_id: usize,
         chunk_size: usize,
         chunk_count: usize,
     ) -> SharedMemoryWriter<'a> {
         let block_size = chunk_size * chunk_count;
-        let mmap_file = SharedMemoryWriter::open(&mmap_file_path);
-        let mut mmap = SharedMemoryWriter::map_file_to_memory(&mmap_file, writer_id, block_size);
+        let mut mmap = SharedMemoryWriter::map_file_to_memory(mmap_file, writer_id, block_size);
         let start_ptr =
-            SharedMemoryWriter::initialize_start_ptr_to_mapped_memory(&mut mmap, block_size);
+            SharedMemoryWriter::initialize_start_ptr_to_mapped_memory(&mut mmap, writer_id, writer_id * block_size);
         let shareable_ptr = ShareablePtr(start_ptr);
         let log_file = SharedMemoryWriter::create_log_file(log_file_path);
         let mut shm_writer = SharedMemoryWriter {
             sequence: 0,
-            mmap_file_path,
             mmap_file,
             mmap,
             writer_id,
@@ -95,12 +92,13 @@ impl<'a> SharedMemoryWriter<'a> {
         }
     }
 
-    fn initialize_start_ptr_to_mapped_memory(mmap: &mut MmapMut, block_size: usize) -> *mut u8 {
+    fn initialize_start_ptr_to_mapped_memory(mmap: &mut MmapMut, writer_id: usize, block_size: usize) -> *mut u8 {
         println!("Initializing IPC file with zeros");
         let start_ptr = mmap.as_mut_ptr();
-        unsafe {
-            write_bytes(start_ptr.offset(0), 0u8, block_size);
-        }
+        println!("Got for writer_id {} the start_ptr: {:p}", writer_id, start_ptr);
+        /*unsafe {
+            write_bytes(start_ptr, 0u8, block_size);
+        }*/
         start_ptr
     }
 
@@ -116,13 +114,13 @@ impl<'a> SharedMemoryWriter<'a> {
         log_file
     }
 
-    pub fn write(&mut self, chunk_id: usize, message: &[u8]) {
+    pub fn write(&mut self, chunk_index: usize, message: &[u8]) {
         let start_ptr: *mut u8 = self.shareable_ptr.0;
         self.write_buffer.clear();
 
         let micro_timestamp = self.start_bench();
 
-        let target_offset = chunk_id * self.chunk_size;
+        let target_offset = chunk_index * self.chunk_size;
         // TODO: String and avoid write!(), use copy_nonoverlapping() from below directly
         let message = String::from_utf8(message.to_vec()).unwrap();
         write!(
@@ -136,59 +134,49 @@ impl<'a> SharedMemoryWriter<'a> {
             width = MAX_USIZE_STRING_LENGTH
         )
         .unwrap();
-        self.sequence += 1;
         if self.write_buffer.len() > self.chunk_size {
             panic!("SharedMemoryWriter writer_id {} write_buffer size {} is greater than chunk size: {}",
                    self.writer_id, self.write_buffer.len(), self.chunk_size);
         }
-        println!(
+        /*println!(
             "SharedMemoryWriter writer_id {} writing to offset {} at time {}",
             self.writer_id,
             self.shareable_ptr.0.addr() + target_offset,
             micro_timestamp
-        );
+        );*/
 
         let write_start = SystemTime::now();
         unsafe {
             // SAFETY: We never overlap on writes.
             // Pointer is living because we using scoped threads.
+            let target_ptr = start_ptr.add(target_offset);
             std::ptr::copy_nonoverlapping(
                 self.write_buffer.as_ptr(),
-                start_ptr.wrapping_offset(target_offset as isize),
+                target_ptr,
                 self.chunk_size,
             );
         }
 
         let write_duration = self.end_bench(write_start);
 
-        println!(
+        /*println!(
             "SharedMemoryWriter writer_id {} wrote at offset {} at time {}. Write took {} μs",
             self.writer_id,
             start_ptr.addr(),
             micro_timestamp,
             write_duration.as_micros()
-        );
+        );*/
 
         // Make writes visible for main thread
         // It is not necessary when using `std::thread::scope` but may be necessary in your case.
         std::sync::atomic::fence(std::sync::atomic::Ordering::Release);
+        self.sequence += 1;
     }
 
     pub fn close(&self) {
         // Make writes visible for main thread
         // It is not necessary when using `std::thread::scope` but may be necessary in your case.
         std::sync::atomic::fence(std::sync::atomic::Ordering::Acquire);
-        let result = self.mmap.flush();
-        match result {
-            Ok(()) => println!(
-                "SharedMemoryWriter writer_id {} successfully flushed memory mapped file: {}",
-                self.writer_id, self.mmap_file_path
-            ),
-            Err(e) => println!(
-                "SharedMemoryWriter writer_id {} failed to flush memory mapped file: {}, error: {}",
-                self.writer_id, self.mmap_file_path, e
-            ),
-        }
     }
 
     fn start_bench(&self) -> u128 {

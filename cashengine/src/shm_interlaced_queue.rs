@@ -84,7 +84,7 @@ impl SharedMemoryQueue {
     }
 
     fn open(file_path: &str) -> File {
-        println!("Creating IPC file {}", file_path);
+        println!("Creating SHM file {}", file_path);
         let path_buf= PathBuf::from(file_path);
         let open_result = File::options()
             .read(true)
@@ -95,18 +95,18 @@ impl SharedMemoryQueue {
         let file: File = match open_result {
             Ok(file) => file,
             Err(e) => {
-                panic!("Failed to create IPC file: {}", e);
+                panic!("Failed to create SHM file: {}", e);
             }
         };
         file
     }
 
     fn resize(file: &File, file_size: usize) {
-        println!("Resizing IPC file to {} bytes", file_size);
+        println!("Resizing SHM file to {} bytes", file_size);
         match file.set_len(file_size as u64) {
             Ok(_) => (),
             Err(e) => {
-                panic!("Failed to resize IPC file: {}", e);
+                panic!("Failed to resize SHM file: {}", e);
             }
         }
     }
@@ -120,14 +120,14 @@ impl SharedMemoryQueue {
                 .map_mut(file) {
                 Ok(mmap) => mmap,
                 Err(e) => {
-                    panic!("Failed to map IPC file to memory: {}", e);
+                    panic!("Failed to map SHM file to memory: {}", e);
                 }
             }
         }
     }
 
     fn initialize_mapped_memory(mmap: &mut MmapMut, file_size: usize) -> *mut u8 {
-        println!("Initializing IPC file with zeros");
+        println!("Initializing SHM file with zeros");
         let start_ptr = mmap.as_mut_ptr();
         unsafe {
             write_bytes(start_ptr.offset(0), 0u8, file_size);
@@ -136,12 +136,12 @@ impl SharedMemoryQueue {
     }
 
     fn create_log_file(log_file_path: &str) -> File {
-        println!("Creating IPC logfile at {}", log_file_path);
+        println!("Creating SHM logfile at {}", log_file_path);
         let log_file = File::create(log_file_path);
         let log_file = match log_file {
             Ok(file) => file,
             Err(e) => {
-                panic!("Failed to create IPC logfile: {}", e);
+                panic!("Failed to create SHM logfile: {}", e);
             }
         };
         log_file
@@ -428,8 +428,8 @@ impl SharedMemoryQueue {
         // Make writes visible for main thread
         // It is not necessary when using `std::thread::scope` but may be necessary in your case.
         std::sync::atomic::fence(std::sync::atomic::Ordering::Acquire);
-        self.mmap.flush().expect("IPC Reader Thread failed to flush memory mapped file");
-        println!("IPC Reader Thread finished");
+        self.mmap.flush().expect("SHM Reader Thread failed to flush memory mapped file");
+        println!("SHM Reader Thread finished");
     }
 }
 

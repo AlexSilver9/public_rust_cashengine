@@ -8,12 +8,10 @@ use tungstenite::stream::MaybeTlsStream;
 use tungstenite::{Message, WebSocket};
 // non-blocking: https://github.com/haxpor/bybit-shiprekt/blob/6c3c5693d675fc997ce5e76df27e571f2aaaf291/src/main.rs
 
-pub const CHUNK_SIZE: usize = 1024;
-
-// TODO: Make non-static
-static mut BUFFER: [u8; CHUNK_SIZE] = [0; CHUNK_SIZE];
+pub const CHUNK_SIZE: usize = 320;
 
 pub struct CeWebSocket {
+    buffer: [u8; CHUNK_SIZE],
     id: usize,
     socket: WebSocket<MaybeTlsStream<TcpStream>>,
     max_size: usize,
@@ -33,6 +31,7 @@ impl CeWebSocket {
                 //}
 
                 Ok(CeWebSocket {
+                    buffer: [0; CHUNK_SIZE],
                     id,
                     socket: sock,
                     max_size: 0,
@@ -65,19 +64,20 @@ impl CeWebSocket {
                 Message::Binary(bytes) => {
                     let vec = bytes.as_ref().to_vec();
                     unsafe {
-                        match gz_inflate_to_buffer(&vec, &mut BUFFER) {
+                        match gz_inflate_to_buffer(&vec, &mut self.buffer) {
                             Ok(size) => {
-                                if size >= 6 && BUFFER.get_unchecked(..6) == b"{\"ping" {
-                                    let message = str::from_utf8_unchecked(&BUFFER[..size]);
-                                    println!("Received ping from websocket server: {}", message);
-                                    self.send_pong(message);
+                                if size >= 6 && self.buffer.get_unchecked(..6) == b"{\"ping" {
+                                    let message = str::from_utf8_unchecked(&self.buffer[..size]);
+                                    let message = message.to_string();
+                                    //println!("Received ping from websocket server: {}", message);
+                                    self.send_pong(&message);
                                 } else {
-                                    on_message( &BUFFER[..size]);
+                                    on_message( &self.buffer[..size]);
                                 }
                                 if size > self.max_size {
                                     self.max_size = size;
                                 }
-                                println!("Max size in bytes: {}", self.max_size);
+                                //println!("Max size in bytes: {}", self.max_size);
                             }
                             Err(e) => eprintln!("Failed to parse message: {:?}: {:?}", e, String::from_utf8_lossy(&vec)),
                         }
@@ -123,7 +123,7 @@ impl CeWebSocket {
         let msg = Message::text(s);
         match self.socket.send(msg) {
             Ok(()) => {
-                println!("Sent {}", sent);
+                //println!("Sent {}", sent);
             },
             Err(e) => {
                 println!("Error sending message: {}", e);

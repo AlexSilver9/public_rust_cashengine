@@ -135,6 +135,10 @@ impl Symbols {
         self.filter_symbols(|s| s.cd == Some(false))
     }
 
+    pub fn len(&self) -> usize {
+        self.data.len()
+    }
+
     pub fn get_symbols(&self) -> Vec<&Symbol> {
         self.data.iter().collect()
     }
