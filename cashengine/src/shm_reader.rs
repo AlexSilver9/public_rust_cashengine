@@ -50,7 +50,7 @@ impl<'a> SharedMemoryReader<'a> {
     }
 
     fn map_file_to_memory(file: &File, file_size: usize) -> MmapMut {
-        println!("Mapping file to memory");
+        println!("Mapping SHM file to memory: {}", file.path().display() );
         unsafe {
             match MmapOptions::new().offset(0).len(file_size).map_mut(file) {
                 Ok(mmap) => mmap,

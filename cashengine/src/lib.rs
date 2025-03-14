@@ -1,6 +1,6 @@
 mod rest_client;
 mod symbol;
-mod currency;
+mod htx_currency;
 mod market;
 mod time_util;
 mod websocket;
@@ -12,6 +12,11 @@ mod string_u8_util;
 mod util;
 mod metrics;
 mod compression;
+mod ring;
+mod pair;
+mod precision;
+mod limits;
+mod currency;
 
 use crate::metrics::P95Tracker;
 use crate::shm_block_writer::SharedMemoryWriter;
@@ -52,20 +57,24 @@ pub fn run() {
         .with_listed_symbols()
         .with_country_enabled();
     if let Err(err) = symbols.get_error() {
-        panic!("Requested symbols contained an error. Exchange error: {err}")
+        quit_with_error("Requested symbols contained an error. Exchange error: {err}")
+    } else if symbols.len() == 0 {
+        quit_with_error("Requested symbols are empty");
     } else {
         symbols.print_compact();
     }
 
 
-    let currencies_url = format!("{rest_url}{path}", path = currency::PATH);
+    let currencies_url = format!("{rest_url}{path}", path = htx_currency::PATH);
     let body = rest_client::send_request(&currencies_url).expect("Failed to get currencies");
-    let mut currencies = currency::Currencies::from(&body).expect("Failed to parse currencies");
+    let mut currencies = htx_currency::HtxCurrencies::from(&body).expect("Failed to parse currencies");
     currencies = currencies
         .with_online_currencies()
         .with_country_enabled();
     if let Err(err) = currencies.get_error() {
-        panic!("Requested currencies contained an error. Exchange error: {err}")
+        quit_with_error("Requested currencies contained an error. Exchange error: {err}")
+    } else if currencies.len() == 0 {
+        quit_with_error("Requested currencies are empty");
     } else {
         //currencies.print_compact();
     }
@@ -76,15 +85,16 @@ pub fn run() {
     markets = markets
         .with_online_markets();
     if let Err(err) = markets.get_error() {
-        panic!("Requested markets contained an error. Exchange error: {err}")
+        quit_with_error("Requested markets contained an error. Exchange error: {err}")
+    } else if markets.len() == 0 {
+        quit_with_error("Requested markets are empty");
     } else {
         //markets.print_compact();
     }
 
 
-
-
     let symbols = Arc::new(symbols);
+
 
     let websocket_count = (symbols.len() / MARKETS_PER_WEBSOCKET) + 1;
 
@@ -94,12 +104,12 @@ pub fn run() {
     let shm_file = Arc::new(shm_file);
 
     std::thread::scope(|s| {
-        println!("Starting Feed Threads for {} Ids", websocket_count);
+        tracing::info!("Starting Feed Threads for {} Ids", websocket_count);
         for id in 0..websocket_count {
             let symbols = Arc::clone(&symbols);
             let shm_file = Arc::clone(&shm_file);
             s.spawn(move || {
-                println!("Starting Feed Thread for Id {}", id);
+                tracing::info!("Starting Feed Thread for Id {}", id);
                 let mut shm_writer = SharedMemoryWriter::create(
                     &&shm_file,
                     id,
@@ -284,3 +294,8 @@ fn resize_shm_file(file: &File, file_size: usize) {
             "Failed to flush SHM file, error: {}", e),
     }
 }*/
+
+fn quit_with_error(error_message: &str) {
+    tracing::error!("{}", error_message);
+    panic!("{}", error_message);
+}

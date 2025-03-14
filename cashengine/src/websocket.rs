@@ -125,3 +125,11 @@ impl CeWebSocket {
         }
     }
 }
+
+impl Drop for CeWebSocket {
+    fn drop(&mut self) {
+        if let Err(e) = self.socket.close(None) {
+            println!("Failed to close connection to server: {}", e);
+        }
+    }
+}
