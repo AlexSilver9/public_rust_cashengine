@@ -35,7 +35,7 @@ impl P95Tracker {
         if self.data.is_empty() {
             None
         } else {
-            let index = (self.data.len() as f64 * 0.95).ceil() as usize - 1;
+            let index = (self.data.len() as f64 * 0.999).ceil() as usize - 1;
             Some(self.data[index])
         }
     }

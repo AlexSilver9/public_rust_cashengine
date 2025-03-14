@@ -4,7 +4,7 @@ pub const PATH: &str = "/v1/settings/common/market-symbols";
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
 #[serde(rename_all = "kebab-case")]
-pub struct Market {
+pub struct HtxMarket {
 
     #[serde(alias = "symbol")]
     pub symbol: Option<String>,  // false	symbol(outside)
@@ -80,9 +80,9 @@ pub struct Market {
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
 #[serde(rename_all = "kebab-case")]
-pub struct Markets {
+pub struct HtxMarkets {
     pub status: Option<String>,           // false    status
-    pub data: Vec<Market>,        // false    data
+    pub data: Vec<HtxMarket>,        // false    data
     #[serde(alias = "ts")]
     pub timestamp: String,               // false    timestamp of incremental data
     pub full: i8,                 // false    full data flag: 0 for no and 1 for yes
@@ -92,7 +92,7 @@ pub struct Markets {
     pub err_msg: Option<String>, // false	error msg(returned when the interface reports an error)
 }
 
-impl Markets {
+impl HtxMarkets {
     // Parse symbols strong typed
     pub fn from(body: &str) -> Result<Self, serde_json::Error> {
         serde_json::from_str(body)
@@ -100,9 +100,9 @@ impl Markets {
 
     fn filter<F>(&self, predicate: F) -> Self
     where
-        F: Fn(&Market) -> bool,
+        F: Fn(&HtxMarket) -> bool,
     {
-        let filtered_data: Vec<Market> =
+        let filtered_data: Vec<HtxMarket> =
             self.data.iter().filter(|m| predicate(m)).cloned().collect();
 
         Self {
@@ -123,7 +123,7 @@ impl Markets {
         self.data.len()
     }
 
-    pub fn get_symbols(&self) -> Vec<&Market> {
+    pub fn get_symbols(&self) -> Vec<&HtxMarket> {
         self.data.iter().collect()
     }
 

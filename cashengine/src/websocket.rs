@@ -18,13 +18,12 @@ impl CeWebSocket {
         let result = tungstenite::connect(url);
         match result {
             Ok((sock, response)) => {
-                // Uncomment these lines to debug the response
-                //println!("Connected to the server");
-                //println!("Response HTTP code: {}", response.status());
-                //println!("Response contains the following headers:");
-                //for (header, _value) in response.headers() {
-                //    println!("* {header}");
-                //}
+                tracing::trace!("Connected to the server");
+                tracing::trace!("Response HTTP code: {}", response.status());
+                tracing::trace!("Response contains the following headers:");
+                for (header, _value) in response.headers() {
+                    tracing::trace!("* {header}");
+                }
 
                 Ok(CeWebSocket {
                     buffer: [0; CHUNK_SIZE],
@@ -48,13 +47,12 @@ impl CeWebSocket {
             let msg = match self.socket.read() {
                 Ok(msg) => msg,
                 Err(e) => {
-                    eprintln!("Error reading message: {}", e);
-                    break;
+                    panic!("Error reading message from websocket server: {}", e)
                 }
             };
             match msg {
                 Message::Text(message) => {
-                    println!("Received text message from websocket server: {}", message);
+                    tracing::trace!("Received text message from websocket server: {}", message);
                 },
                 Message::Binary(bytes) => {
                     let vec = bytes.as_ref().to_vec();
@@ -64,7 +62,7 @@ impl CeWebSocket {
                                 if size >= 6 && self.buffer.get_unchecked(..6) == b"{\"ping" {
                                     let message = str::from_utf8_unchecked(&self.buffer[..size]);
                                     let message = message.to_string();
-                                    //println!("Received ping from websocket server: {}", message);
+                                    //tracing::trace!("Received ping from websocket server: {}", message);
                                     self.send_pong(&message);
                                 } else {
                                     on_message( &self.buffer[..size]);
@@ -72,33 +70,33 @@ impl CeWebSocket {
                                 if size > self.max_size {
                                     self.max_size = size;
                                 }
-                                //println!("Max size in bytes: {}", self.max_size);
+                                //tracing::trace!("Max size in bytes: {}", self.max_size);
                             }
-                            Err(e) => eprintln!("Failed to parse message: {:?}: {:?}", e, String::from_utf8_lossy(&vec)),
+                            Err(e) => tracing::error!("Failed to inflate message from websocket server: {:?}: {:?}", e, String::from_utf8_lossy(&vec)),
                         }
                     }
                 },
                 Message::Close(close_frame) => {
                     match close_frame {
                         Some(reason) => {
-                            println!("Connection closed by server with reason: {}", reason);
+                            tracing::info!("Connection closed by server with reason: {}", reason);
                             match self.socket.close(None) {
-                                Ok(()) => println!("Closed connection to server"),
-                                Err(e) => println!("Failed to close connection to sever: {}", e),
+                                Ok(()) => tracing::info!("Closed connection to server"),
+                                Err(e) => tracing::error!("Failed to close connection to sever: {}", e),
                             }
                         },
                         None => {
-                            println!("Connection closed by server without reason");
+                            tracing::info!("Connection closed by server without reason");
                             match self.socket.close(None) {
-                                Ok(()) => println!("Closed connection to server"),
-                                Err(e) => println!("Failed to close connection to server: {}", e),
+                                Ok(()) => tracing::info!("Closed connection to server"),
+                                Err(e) => tracing::error!("Failed to close connection to server: {}", e),
                             }
                         },
                     }
                     break;
                 },
                 _ => {
-                    eprintln!("Received unknown message from server");
+                    tracing::error!("Received unknown message from server");
                     break;
                 }
             }
@@ -117,10 +115,10 @@ impl CeWebSocket {
         let msg = Message::text(s);
         match self.socket.send(msg) {
             Ok(()) => {
-                tracing::trace!("Sent {}", String::from(s));
+                tracing::trace!("Sent message to websocket server: {}", String::from(s));
             },
             Err(e) => {
-                println!("Error sending message: {}", e);
+                tracing::error!("Error sending message to websocket server: {}", e);
             }
         }
     }
@@ -129,7 +127,7 @@ impl CeWebSocket {
 impl Drop for CeWebSocket {
     fn drop(&mut self) {
         if let Err(e) = self.socket.close(None) {
-            println!("Failed to close connection to server: {}", e);
+            tracing::error!("Failed to close connection to websocket server: {}", e);
         }
     }
 }

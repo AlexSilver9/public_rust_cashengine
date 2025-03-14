@@ -1,12 +1,11 @@
 use serde::{Deserialize, Serialize};
-use serde_json::{Map, Value};
 use std::fmt;
 
 pub const PATH: &str = "/v1/settings/common/symbols";
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
 #[serde(rename_all = "kebab-case")]
-pub struct Symbol {
+pub struct HtxSymbol {
     // field, type, required, description
     #[serde(alias = "symbol")]
     pub symbol: Option<String>,  // false	symbol(outside)
@@ -78,9 +77,9 @@ pub struct Symbol {
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
 #[serde(rename_all = "kebab-case")]
-pub struct Symbols {
+pub struct HtxSymbols {
     pub status: String,           // false    status
-    pub data: Vec<Symbol>,        // false    data
+    pub data: Vec<HtxSymbol>,        // false    data
     #[serde(alias = "ts")]
     pub timestamp: String,               // false    timestamp of incremental data
     pub full: i8,                 // false    full data flag: 0 for no and 1 for yes
@@ -90,52 +89,17 @@ pub struct Symbols {
     pub err_msg: Option<String>, // false	error msg(returned when the interface reports an error)
 }
 
-impl Symbols {
+impl HtxSymbols {
     // Parse symbols strong typed
     pub fn from(body: &str) -> Result<Self, serde_json::Error> {
         serde_json::from_str(body)
     }
 
-    pub fn from_as_map(body: &str) -> Result<Map<String, Value>, Box<dyn std::error::Error>> {
-        let symbols_response: Map<String, Value> = serde_json::from_str(body)?;
-
-        // Print non-data fields
-        symbols_response
-            .iter()
-            .filter(|(key, _)| *key != "data")
-            .for_each(|(key, value)| println!("Key: {}, Value: {:?}", key, value));
-
-        if let Some(data) = symbols_response.get("data").and_then(Value::as_array) {
-            let symbols: Vec<_> = data
-                .iter()
-                .filter_map(|item| item.as_object())
-                .map(|item_map| {
-                    let symbol = item_map
-                        .get("symbol")
-                        .and_then(Value::as_str)
-                        .unwrap_or("N/A");
-                    let base = item_map.get("bc").and_then(Value::as_str).unwrap_or("N/A");
-                    let quote = item_map.get("qc").and_then(Value::as_str).unwrap_or("N/A");
-                    (symbol, base, quote)
-                })
-                .collect();
-
-            symbols.iter().for_each(|(symbol, base, quote)| {
-                println!("Symbol: {}, Base: {}, Quote: {}", symbol, base, quote);
-            });
-
-            println!("Symbols count: {}", symbols.len());
-        } else {
-            println!("No 'data' field found or it's not an array");
-        }
-        Ok(symbols_response)
-    }
-
     fn filter<F>(&self, predicate: F) -> Self
     where
-        F: Fn(&Symbol) -> bool,
+        F: Fn(&HtxSymbol) -> bool,
     {
-        let filtered_data: Vec<Symbol> =
+        let filtered_data: Vec<HtxSymbol> =
             self.data.iter().filter(|s| predicate(s)).cloned().collect();
 
         Self {
@@ -176,7 +140,7 @@ impl Symbols {
         self.data.len()
     }
 
-    pub fn get_symbols(&self) -> Vec<&Symbol> {
+    pub fn get_symbols(&self) -> Vec<&HtxSymbol> {
         self.data.iter().collect()
     }
 
@@ -198,52 +162,52 @@ impl Symbols {
         }
     }
 
-    pub fn print(&self) {
-        self.print_common_info();
-        self.print_symbols(|index, symbol| SymbolPrinter(index, symbol).to_string());
+    pub fn log_full(&self) {
+        self.log_common_info();
+        self.log_symbols(|index, symbol| FullSymbolPrinter(index, symbol).to_string());
     }
 
-    pub fn print_compact(&self) {
-        self.print_common_info();
-        self.print_symbols(|index, symbol| CompactSymbolPrinter(index, symbol).to_string());
+    pub fn log_compact(&self) {
+        self.log_common_info();
+        self.log_symbols(|index, symbol| CompactSymbolPrinter(index, symbol).to_string());
     }
 
-    fn print_common_info(&self) {
-        println!("Symbols Status: {}", self.status);
-        println!("Timestamp: {}", self.timestamp);
-        println!("Full Data: {}", if self.full == 1 { "Yes" } else { "No" });
+    fn log_common_info(&self) {
+        tracing::info!("Symbols Status: {}", self.status);
+        tracing::info!("Timestamp: {}", self.timestamp);
+        tracing::debug!("Full Data: {}", if self.full == 1 { "Yes" } else { "No" });
 
         if let Some(err_code) = &self.err_code {
-            println!("Error Code: {}", err_code);
+            tracing::error!("Error Code: {}", err_code);
         }
         if let Some(err_msg) = &self.err_msg {
-            println!("Error Message: {}", err_msg);
+            tracing::error!("Error Message: {}", err_msg);
         }
     }
 
-    fn print_symbols<F>(&self, printer: F)
+    fn log_symbols<F>(&self, printer: F)
     where
-        F: Fn(usize, &Symbol) -> String,
+        F: Fn(usize, &HtxSymbol) -> String,
     {
-        println!("\nSymbols:");
+        tracing::debug!("\nSymbols:");
         for (index, symbol) in self.data.iter().enumerate() {
-            println!("{}", printer(index + 1, symbol));
+            tracing::debug!("{}", printer(index + 1, symbol));
         }
-        println!("Total Symbols: {}", self.data.len());
+        tracing::debug!("Total Symbols: {}", self.data.len());
     }
 
     pub fn print_custom<F>(&self, custom_printer: F)
     where
-        F: Fn(usize, &Symbol) -> String,
+        F: Fn(usize, &HtxSymbol) -> String,
     {
-        self.print_common_info();
-        self.print_symbols(custom_printer);
+        self.log_common_info();
+        self.log_symbols(custom_printer);
     }
 }
 
-struct SymbolPrinter<'a>(usize, &'a Symbol);
+struct FullSymbolPrinter<'a>(usize, &'a HtxSymbol);
 
-impl<'a> fmt::Display for SymbolPrinter<'a> {
+impl<'a> fmt::Display for FullSymbolPrinter<'a> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let (index, symbol) = (self.0, self.1);
         write!(f, "{}. Symbol: {}", index, symbol.symbol.as_deref().unwrap_or("N/A"))?;
@@ -263,7 +227,7 @@ impl<'a> fmt::Display for SymbolPrinter<'a> {
     }
 }
 
-struct CompactSymbolPrinter<'a>(usize, &'a Symbol);
+struct CompactSymbolPrinter<'a>(usize, &'a HtxSymbol);
 
 impl<'a> fmt::Display for CompactSymbolPrinter<'a> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {

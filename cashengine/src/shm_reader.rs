@@ -50,23 +50,24 @@ impl<'a> SharedMemoryReader<'a> {
     }
 
     fn map_file_to_memory(file: &File, file_size: usize) -> MmapMut {
-        println!("Mapping SHM file to memory: {}", file.path().display() );
+        tracing::info!("Mapping SHM file to memory for reading");
         unsafe {
             match MmapOptions::new().offset(0).len(file_size).map_mut(file) {
                 Ok(mmap) => mmap,
                 Err(e) => {
-                    panic!("Failed to map SHM file to memory: {}", e);
+                    panic!("Failed to map SHM file to memory for reading: {}", e);
                 }
             }
         }
     }
 
     fn initialize_start_ptr_to_mapped_memory(mmap: &mut MmapMut, file_size: usize) -> *mut u8 {
-        println!("Initializing SHM file with zeros");
+        tracing::info!("Initializing SHM file with zeros for reading");
         let start_ptr = mmap.as_mut_ptr();
         unsafe {
             write_bytes(start_ptr.offset(0), 0u8, file_size);
         }
+        tracing::info!("Got for reading the start_ptr: {:p}", start_ptr);
         start_ptr
     }
 
@@ -83,7 +84,7 @@ impl<'a> SharedMemoryReader<'a> {
 
         unsafe {
             // SAFETY: We never overlap on writes.
-            // Pointer is living because we using scoped threads.
+            // Pointer is living because we use scoped threads.
             std::ptr::copy_nonoverlapping(
                 start_ptr.wrapping_offset(target_offset as isize),
                 self.read_buffer.as_ptr().cast_mut(),
@@ -115,7 +116,7 @@ impl<'a> SharedMemoryReader<'a> {
         let read_end = SystemTime::now();
         let read_duration = read_end.duration_since(read_start);
         read_duration.unwrap_or_else(|e| {
-            println!("SharedMemoryReader failed getting duration for read: {}", e);
+            tracing::error!("SharedMemoryReader failed getting duration for read: {}", e);
             Duration::new(0, 0)
         })
     }

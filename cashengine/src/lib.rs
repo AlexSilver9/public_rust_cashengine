@@ -1,10 +1,9 @@
 mod rest_client;
-mod symbol;
+mod htx_symbol;
 mod htx_currency;
-mod market;
+mod htx_market;
 mod time_util;
 mod websocket;
-//pub mod shm_interlaced_queue;
 pub mod shm_block_writer;
 pub mod shm_reader;
 
@@ -26,6 +25,7 @@ use std::collections::HashMap;
 use std::fs::File;
 use std::path::PathBuf;
 use std::sync::Arc;
+use std::time::{SystemTime, UNIX_EPOCH};
 
 static STATUS: &[u8] = b"status";
 static MARKET_DOT: &[u8] = b"market.";
@@ -41,14 +41,14 @@ pub fn run() {
 
     let websocket_url = "wss://api-aws.huobi.pro/ws";
 
-    // TODO: On Linux use tmpfs shared memory: let mut synchronizer = Synchronizer::new("/dev/shm/hello_world".as_ref());
+    // TODO: On Linux use tmpfs shared memory: /dev/shm/ticks.shm;
     let mmap_file_path = "/tmp/ticks.mmap";
 
     let rest_url = "https://api-aws.huobi.pro";
 
-    let symbols_url = format!("{rest_url}{path}",path = symbol::PATH);
+    let symbols_url = format!("{rest_url}{path}",path = htx_symbol::PATH);
     let body = rest_client::send_request(&symbols_url).expect("Failed to get symbols");
-    let mut symbols = symbol::Symbols::from(&body).expect("Failed to parse symbols");
+    let mut symbols = htx_symbol::HtxSymbols::from(&body).expect("Failed to parse symbols");
     symbols = symbols
         .with_online_symbols()
         .with_trade_enabled_symbols()
@@ -57,11 +57,11 @@ pub fn run() {
         .with_listed_symbols()
         .with_country_enabled();
     if let Err(err) = symbols.get_error() {
-        quit_with_error("Requested symbols contained an error. Exchange error: {err}")
+        panic!("Requested symbols contained an error. Exchange error: {err}")
     } else if symbols.len() == 0 {
-        quit_with_error("Requested symbols are empty");
+        panic!("Requested symbols are empty");
     } else {
-        symbols.print_compact();
+        symbols.log_compact();
     }
 
 
@@ -72,22 +72,22 @@ pub fn run() {
         .with_online_currencies()
         .with_country_enabled();
     if let Err(err) = currencies.get_error() {
-        quit_with_error("Requested currencies contained an error. Exchange error: {err}")
+        panic!("Requested currencies contained an error. Exchange error: {err}")
     } else if currencies.len() == 0 {
-        quit_with_error("Requested currencies are empty");
+        panic!("Requested currencies are empty");
     } else {
         //currencies.print_compact();
     }
 
-    let markets_url = format!("{rest_url}{path}", path = market::PATH);
+    let markets_url = format!("{rest_url}{path}", path = htx_market::PATH);
     let body = rest_client::send_request(&markets_url).expect("Failed to get markets");
-    let mut markets = market::Markets::from(&body).expect("Failed to parse markets");
+    let mut markets = htx_market::HtxMarkets::from(&body).expect("Failed to parse markets");
     markets = markets
         .with_online_markets();
     if let Err(err) = markets.get_error() {
-        quit_with_error("Requested markets contained an error. Exchange error: {err}")
+        panic!("Requested markets contained an error. Exchange error: {err}")
     } else if markets.len() == 0 {
-        quit_with_error("Requested markets are empty");
+        panic!("Requested markets are empty");
     } else {
         //markets.print_compact();
     }
@@ -147,11 +147,11 @@ pub fn run() {
                     .expect(format!("Failed to connect websocket url: {}", websocket_url).as_str());
                 let (_, response) = tungstenite::connect(websocket_url)
                     .expect(format!("Failed to connect websocket url: {}", websocket_url).as_str());
-                println!("Connected to the server");
-                println!("Response HTTP code: {}", response.status());
-                println!("Response contains the following headers:");
+                tracing::debug!("Connected to websocket server with id {}", id);
+                tracing::debug!("Websocket server id {} response HTTP code: {}", id, response.status());
+                tracing::debug!("Websocket server id {} response contains the following headers:", id);
                 for (header, _value) in response.headers() {
-                    println!("* {header}");
+                    tracing::debug!("* {header}");
                 }
 
                 let on_websocket_message = |message: &[u8]| {
@@ -180,7 +180,7 @@ pub fn run() {
                     }
                 };
 
-                println!("Subscribing to symbols: {}", subscribe_request);
+                tracing::info!("Subscribing to symbols: {}", subscribe_request);
                 websocket.subscribe(subscribe_request.as_str());
                 websocket.run(on_websocket_message);
 
@@ -189,7 +189,7 @@ pub fn run() {
         }
 
         let main_thread = s.spawn(move || {
-            println!("Starting Feeds Reader Thread");
+            tracing::info!("Starting Feeds Reader Thread");
             let shm_file = Arc::clone(&shm_file);
             let mut shm_reader = SharedMemoryReader::create(
                 &&shm_file,
@@ -204,59 +204,71 @@ pub fn run() {
                 let message =
                     unsafe { string_u8_util::null_terminated_u8_to_utf8_str_unchecked(message) };
                 if !message.is_empty() {
-                    // TODO: Process Message
-
-                    //println!("Read message: '{}'", message);
-                    /*match message.find(':') {
+                    tracing::trace!("Read message: '{}'", message);
+                    match message.find(':') {
                         Some(index) => {
+                            let writer_id = &message[..index];
                             let message = &message[index+1..];
                             match message.find(':') {
                                 Some(start_index) => {
+                                    let sequence = &message[..start_index];
                                     let message = &message[start_index+1..];
                                     match message.find(':') {
                                         Some(end_index) => {
-                                            let timestamp = &message[..end_index];
-                                            let timestamp: u128 = timestamp.parse().unwrap_or_else(|e| {
-                                                eprintln!("Failed to parse timestamp: {}, error: {}", timestamp, e);
+                                            let start_timestamp_micros = &message[..end_index];
+                                            let start_timestamp_micros: u128 = start_timestamp_micros.parse().unwrap_or_else(|e| {
+                                                tracing::error!("Failed to parse start_timestamp_micros: {}, error: {}", start_timestamp_micros, e);
                                                 0
                                             });
 
-                                            let current_system_time = SystemTime::now();
-                                            match current_system_time.duration_since(UNIX_EPOCH) {
-                                                Ok(duration_since_epoch) => {
-                                                    let micro_seconds_timestamp = duration_since_epoch.as_micros();
-                                                    let latency = micro_seconds_timestamp - timestamp;
+                                            let message = &message[end_index+1..];
 
-                                                    p95_tracker.push(latency);
+                                            match message.find(':') {
+                                                Some(end_index) => {
+                                                    let offset = &message[..end_index];
+                                                    let message = &message[end_index+1..];
 
-                                                    if p95_tracker.has_enough_samples() {
-                                                        if let Some(p95) = p95_tracker.p95() {
-                                                            event!(Level::INFO, "P95 Latency: {} μs", p95);
-                                                        }
+                                                    // TODO: Process message with business logic here
+
+                                                    let current_system_time = SystemTime::now();
+                                                    match current_system_time.duration_since(UNIX_EPOCH) {
+                                                        Ok(duration_since_epoch) => {
+                                                            let end_timestamp_micros = duration_since_epoch.as_micros();
+                                                            let latency = end_timestamp_micros - start_timestamp_micros;
+
+                                                            p95_tracker.push(latency);
+
+                                                            if p95_tracker.has_enough_samples() {
+                                                                if let Some(p95) = p95_tracker.p95() {
+                                                                    tracing::debug!("P95 Latency: {} μs", p95);
+                                                                    tracing::trace!("Read message from writer_id: {}, sequence: {}, start_timestamp_micros: {}, offset: {}, message: {}",
+                                                                        writer_id, sequence, start_timestamp_micros, offset, message);
+                                                                }
+                                                            }
+                                                        },
+                                                        Err(e) => tracing::error!("Failed getting duration for UNIX epoch: {}", e),
                                                     }
                                                 },
-                                                Err(e) => println!("Failed getting duration for UNIX epoch: {}", e),
+                                                _ => ()
                                             }
                                         }
                                         _ => ()
                                     }
-
                                 },
                                 _ => ()
                             }
                         }
                         _ => ()
-                    }*/
+                    }
                 }
             }
         });
         main_thread.join().unwrap();
-        //close(&shm_file);
     });
 }
 
 fn create_shm_file(file_path: &str) -> File {
-    println!("Creating SHM file: {}", file_path);
+    tracing::info!("Creating SHM file: {}", file_path);
     let path_buf = PathBuf::from(file_path);
     let open_result = File::options()
         .read(true)
@@ -274,28 +286,11 @@ fn create_shm_file(file_path: &str) -> File {
 }
 
 fn resize_shm_file(file: &File, file_size: usize) {
-    println!("Resizing SHM file to {} bytes", file_size);
+    tracing::info!("Resizing SHM file to {} bytes", file_size);
     match file.set_len(file_size as u64) {
         Ok(_) => (),
         Err(e) => {
             panic!("Failed to resize SHM file: {}", e);
         }
     }
-}
-
-/*pub fn close(mut file: &Arc<File>) {
-    // Make writes visible for main thread
-    // It is not necessary when using `std::thread::scope` but may be necessary in your case.
-    std::sync::atomic::fence(std::sync::atomic::Ordering::Acquire);
-    let result = file.flush();
-    match result {
-        Ok(()) => println!("Flushed SHM file"),
-        Err(e) => println!(
-            "Failed to flush SHM file, error: {}", e),
-    }
-}*/
-
-fn quit_with_error(error_message: &str) {
-    tracing::error!("{}", error_message);
-    panic!("{}", error_message);
 }

@@ -7,10 +7,9 @@ pub fn send_request(url: &str) -> Result<String, Box<dyn std::error::Error>> {
     response.read_to_string(&mut body)?;
     tracing::debug!("Requesting url {} done", url);
 
-    // Uncomment these lines if you need to debug the response
-    // println!("Status: {}", response.status());
-    // println!("Headers:\n{:#?}", response.headers());
-    // println!("Body:\n{}", body);
+    tracing::trace!("Status: {}", response.status());
+    tracing::trace!("Headers:\n{:#?}", response.headers());
+    tracing::trace!("Body:\n{}", body);
 
     Ok(body)
 }

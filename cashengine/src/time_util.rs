@@ -5,8 +5,8 @@ pub fn print_systemtime() {
     match current_system_time.duration_since(UNIX_EPOCH) {
         Ok(duration_since_epoch) => {
             let milliseconds_timestamp = duration_since_epoch.as_millis();
-            println!("Startup timestamp: {}", milliseconds_timestamp);
+            tracing::info!("Startup timestamp: {}", milliseconds_timestamp);
         },
-        Err(err) => println!("Error getting duration for UNIX epoch: {}", err),
+        Err(err) => tracing::error!("Error getting duration for UNIX epoch: {}", err),
     }
 }
