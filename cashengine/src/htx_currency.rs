@@ -70,7 +70,7 @@ where
     match value {
         serde_json::Value::String(s) => Ok(Some(s)),
         serde_json::Value::Bool(b) => Ok(Some(b.to_string())),
-        _ => Err(D::Error::custom("Failed to deserialize to String or bool")),
+        _ => Err(Error::custom("Failed to deserialize to String or bool")),
     }
 }
 

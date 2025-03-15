@@ -125,7 +125,7 @@ pub fn run() {
             let core_ids = Arc::clone(&core_ids);
 
             s.spawn(move || {
-                let core_id = (core_ids.len() - (id + 1 + 1));
+                let core_id = core_ids.len() - id + 1 + 1;
                 tracing::info!("Starting feed thread id {} on core id {}", id, core_id);
 
                 let core_id = core_ids.get(core_id).unwrap_or_else( || {

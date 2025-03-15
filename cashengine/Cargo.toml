@@ -14,7 +14,7 @@ reqwest = { version = "0.12", features = ["blocking"] }
 bytecheck = { version = "0.6.12", default-features = false }
 rkyv = { version = "0.7.45", features = ["validation", "strict"] }
 faster-hex = "0.10.0"
-memmap2 = "0.5.10"
+memmap2 = "0.9.5"
 tracing = "0.1.41"
 tracing-subscriber = { version = "0.3.19", default-features = false, features = ["smallvec", "fmt", "ansi", "std", "env-filter"] }
 strum = "0.27"
