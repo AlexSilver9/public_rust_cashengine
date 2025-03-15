@@ -103,13 +103,42 @@ pub fn run() {
 
     let shm_file = Arc::new(shm_file);
 
+    // Retrieve the IDs of all active CPU cores.
+    let core_ids = core_affinity::get_core_ids().unwrap_or_else(|| {
+        panic!("Failed getting core ids")
+    });
+    tracing::info!("Available core ids: {:?}", core_ids);
+
+    if core_ids.is_empty() {
+        panic!("List of core ids is empty");
+    }
+    if core_ids.len() < (websocket_count + 1 /*main thread */) {
+        panic!("Not enough cores to run {} websockets plus 1 main thread. At least {} cores are required.", websocket_count, websocket_count + 1);
+    }
+    let core_ids = Arc::new(core_ids);
+
     std::thread::scope(|s| {
-        tracing::info!("Starting Feed Threads for {} Ids", websocket_count);
+        tracing::info!("Starting {} feed threads", websocket_count);
         for id in 0..websocket_count {
             let symbols = Arc::clone(&symbols);
             let shm_file = Arc::clone(&shm_file);
+            let core_ids = Arc::clone(&core_ids);
+
             s.spawn(move || {
-                tracing::info!("Starting Feed Thread for Id {}", id);
+                let core_id = (core_ids.len() - (id + 1 + 1));
+                tracing::info!("Starting feed thread id {} on core id {}", id, core_id);
+
+                let core_id = core_ids.get(core_id).unwrap_or_else( || {
+                    panic!("Failed getting core id for feed thread id {}", id);
+                });
+
+                if core_affinity::set_for_current(core_id.clone()) {
+                    tracing::info!("Using core id {:?} for feed thread id: {}", core_id, id);
+                } else {
+                    // TODO: Fails on Apple Silicon -> test on Intel Linux
+                    tracing::warn!("Failed acquiring core id {:?} for feed thread id: {} (ok on Apple Silicon)", core_id, id);
+                }
+
                 let mut shm_writer = SharedMemoryWriter::create(
                     &&shm_file,
                     id,
@@ -183,19 +212,31 @@ pub fn run() {
                 tracing::info!("Subscribing to symbols: {}", subscribe_request);
                 websocket.subscribe(subscribe_request.as_str());
                 websocket.run(on_websocket_message);
-
-                shm_writer.close();
             });
         }
 
         let main_thread = s.spawn(move || {
-            tracing::info!("Starting Feeds Reader Thread");
+            tracing::info!("Starting feeds reader thread");
             let shm_file = Arc::clone(&shm_file);
             let mut shm_reader = SharedMemoryReader::create(
                 &&shm_file,
                 websocket::CHUNK_SIZE,
                 websocket_count * MARKETS_PER_WEBSOCKET,
             );
+
+            let core_ids = Arc::clone(&core_ids);
+            let core_id = core_ids.len() - 1;
+            tracing::info!("Starting feeds reader thread on core id {}", core_id);
+
+            let core_id = core_ids.get(core_id ).unwrap_or_else( || {
+                panic!("Failed getting core id {} for feeds reader thread", core_id);
+            });
+
+            if core_affinity::set_for_current(*core_id) {
+                tracing::info!("Using core id {:?} for feeds reader thread", core_id);
+            } else {
+                tracing::warn!("Failed acquiring core id {:?} for feeds reader thread (ok on Apple Silicon)", core_id);
+            }
 
             let mut iterations = 0;
             let mut p95_tracker = P95Tracker::new(128);
@@ -239,8 +280,8 @@ pub fn run() {
 
                                                             p95_tracker.push(latency);
 
-                                                            // Print message and P95 Latency every 100000 iterations.
-                                                            if iterations % 100000 == 0 {
+                                                            // Print message and P95 Latency every 98765 iterations (some out-of-sequence number).
+                                                            if iterations % 98765 == 0 {
                                                                 if p95_tracker.has_enough_samples() {
                                                                     if let Some(p95) = p95_tracker.p95() {
                                                                         tracing::debug!("P95 Latency: {} μs", p95);

@@ -3,9 +3,12 @@ use std::fs::File;
 use std::ptr::write_bytes;
 use std::time::{Duration, SystemTime};
 use std::vec;
+use tracing::{enabled, Level};
 
 #[derive(Copy, Clone)]
 pub struct ShareablePtr(pub(crate) *mut u8);
+
+const ZERO_DURATION: Duration = Duration::new(0, 0);
 
 // SAFETY: We never alias data when writing from multiple threads.
 // Writer threads finish before unmapping.
@@ -80,7 +83,7 @@ impl<'a> SharedMemoryReader<'a> {
         // It is not necessary when using `std::thread::scope` but may be necessary in your case.
         std::sync::atomic::fence(std::sync::atomic::Ordering::Acquire);
 
-        //let read_start = self.start_bench();
+        let read_start = self.start_bench();
 
         unsafe {
             // SAFETY: We never overlap on writes.
@@ -92,14 +95,15 @@ impl<'a> SharedMemoryReader<'a> {
             );
         }
 
-        /*
-        let read_duration = self.end_bench(read_start);
-        println!(
-            "SharedMemoryReader read chunk_id {} at offset {} in {} μs",
-            self.current_chunk_id,
-            target_offset,
-            read_duration.as_micros()
-        );*/
+        if enabled!(Level::TRACE) {
+            let read_duration = self.end_bench(read_start);
+            tracing::trace!(
+                "SharedMemoryReader read chunk_id {} at offset {} in {} μs",
+                self.current_chunk_id,
+                target_offset,
+                read_duration.as_micros()
+            );
+        }
 
         self.next_chunk();
         &self.read_buffer[..self.chunk_size]
@@ -113,12 +117,16 @@ impl<'a> SharedMemoryReader<'a> {
     }
 
     fn end_bench(&self, read_start: SystemTime) -> Duration {
-        let read_end = SystemTime::now();
-        let read_duration = read_end.duration_since(read_start);
-        read_duration.unwrap_or_else(|e| {
-            tracing::error!("SharedMemoryReader failed getting duration for read: {}", e);
-            Duration::new(0, 0)
-        })
+        if enabled!(Level::TRACE) {
+            let read_end = SystemTime::now();
+            let read_duration = read_end.duration_since(read_start);
+            read_duration.unwrap_or_else(|e| {
+                tracing::error!("SharedMemoryReader failed getting duration for read: {}", e);
+                ZERO_DURATION
+            })
+        } else {
+            ZERO_DURATION
+        }
     }
 
     fn start_bench(&self) -> SystemTime {

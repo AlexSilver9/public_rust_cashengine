@@ -3,6 +3,7 @@ use memmap2::{MmapMut, MmapOptions};
 use std::fmt::Write;
 use std::fs::File;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use tracing::{enabled, Level};
 
 #[derive(Copy, Clone)]
 pub struct ShareablePtr(pub(crate) *mut u8);
@@ -97,13 +98,17 @@ impl<'a> SharedMemoryWriter<'a> {
             panic!("SharedMemoryWriter writer_id {} write_buffer size {} is greater than chunk size: {}",
                    self.writer_id, self.write_buffer.len(), self.chunk_size);
         }
-        /*tracing::trace!(
-            "SharedMemoryWriter writer_id {} writing to offset {} at time {}",
-            self.writer_id,
-            self.shareable_ptr.0.addr() + target_offset,
-            start_timestamp_micros
-        );
-        let write_start = SystemTime::now();*/
+
+        if enabled!(Level::TRACE) {
+            tracing::debug!(
+                "SharedMemoryWriter writer_id {} writing to offset {} at time {}",
+                self.writer_id,
+                self.shareable_ptr.0.addr() + target_offset,
+                start_timestamp_micros
+            );
+        }
+
+        let write_start = SystemTime::now();
 
         unsafe {
             // SAFETY: We never overlap on writes.
@@ -116,26 +121,21 @@ impl<'a> SharedMemoryWriter<'a> {
             );
         }
 
-        /*
-        let write_duration = self.end_bench(write_start);
-        tracing::trace!(
-            "SharedMemoryWriter writer_id {} wrote at offset {} at time {}. Write took {} μs",
-            self.writer_id,
-            start_ptr.addr(),
-            micro_timestamp,
-            write_duration.as_micros()
-        );*/
+        if enabled!(Level::TRACE) {
+            let write_duration = self.end_bench(write_start);
+            tracing::debug!(
+                "SharedMemoryWriter writer_id {} wrote at offset {} at time {}. Write took {} μs",
+                self.writer_id,
+                start_ptr.addr(),
+                start_timestamp_micros,
+                write_duration.as_micros()
+            );
+        }
 
         // Make writes visible for main thread
         // It is not necessary when using `std::thread::scope` but may be necessary in your case.
         std::sync::atomic::fence(std::sync::atomic::Ordering::Release);
         self.sequence += 1;
-    }
-
-    pub fn close(&self) {
-        // Make writes visible for main thread
-        // It is not necessary when using `std::thread::scope` but may be necessary in your case.
-        std::sync::atomic::fence(std::sync::atomic::Ordering::Acquire);
     }
 
     fn start_bench(&self) -> u128 {
@@ -157,5 +157,13 @@ impl<'a> SharedMemoryWriter<'a> {
         let write_end = SystemTime::now();
         let write_duration = write_end.duration_since(write_start).unwrap();
         write_duration
+    }
+}
+
+impl<'a> Drop for SharedMemoryWriter<'a> {
+    fn drop(&mut self) {
+        // Make writes visible for main thread
+        // It is not necessary when using `std::thread::scope` but may be necessary in your case.
+        std::sync::atomic::fence(std::sync::atomic::Ordering::Acquire);
     }
 }
