@@ -162,11 +162,6 @@ impl HtxSymbols {
         }
     }
 
-    pub fn log_full(&self) {
-        self.log_common_info();
-        self.log_symbols(|index, symbol| FullSymbolPrinter(index, symbol).to_string());
-    }
-
     pub fn log_compact(&self) {
         self.log_common_info();
         self.log_symbols(|index, symbol| CompactSymbolPrinter(index, symbol).to_string());
@@ -194,36 +189,6 @@ impl HtxSymbols {
             tracing::debug!("{}", printer(index + 1, symbol));
         }
         tracing::debug!("Total Symbols: {}", self.data.len());
-    }
-
-    pub fn print_custom<F>(&self, custom_printer: F)
-    where
-        F: Fn(usize, &HtxSymbol) -> String,
-    {
-        self.log_common_info();
-        self.log_symbols(custom_printer);
-    }
-}
-
-struct FullSymbolPrinter<'a>(usize, &'a HtxSymbol);
-
-impl<'a> fmt::Display for FullSymbolPrinter<'a> {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let (index, symbol) = (self.0, self.1);
-        write!(f, "{}. Symbol: {}", index, symbol.symbol.as_deref().unwrap_or("N/A"))?;
-        write!(f, ", Base: {}", symbol.base_currency.as_deref().unwrap_or("N/A"))?;
-        write!(f, ", Quote: {}", symbol.quote_currency.as_deref().unwrap_or("N/A"))?;
-        write!(f, ", State: {}", symbol.state.as_deref().unwrap_or("N/A"))?;
-        write!(f, ", Trade Enabled: {}", symbol.trade_enabled.unwrap_or(false))?;
-        if let Some(tet) = symbol.trade_enable_timestamp {
-            write!(f, ", Trade Enable Timestamp: {}", tet)?;
-        }
-        write!(f, ", Symbol Partition: {}", symbol.symbol_partition.as_deref().unwrap_or("N/A"))?;
-        if let Some(tags) = &symbol.tags {
-            write!(f, " Tags: {}", tags)?;
-        }
-        // TODO: Implement remaining fields
-        Ok(())
     }
 }
 

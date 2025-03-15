@@ -11,11 +11,6 @@ mod string_u8_util;
 mod util;
 mod metrics;
 mod compression;
-mod ring;
-mod pair;
-mod precision;
-mod limits;
-mod currency;
 
 use crate::metrics::P95Tracker;
 use crate::shm_block_writer::SharedMemoryWriter;
@@ -125,18 +120,21 @@ pub fn run() {
             let core_ids = Arc::clone(&core_ids);
 
             s.spawn(move || {
-                let core_id = core_ids.len() - id + 1 + 1;
+                let core_id = core_ids.len() - (id + 1 + 1);
                 tracing::info!("Starting feed thread id {} on core id {}", id, core_id);
 
-                let core_id = core_ids.get(core_id).unwrap_or_else( || {
-                    panic!("Failed getting core id for feed thread id {}", id);
-                });
-
-                if core_affinity::set_for_current(core_id.clone()) {
-                    tracing::info!("Using core id {:?} for feed thread id: {}", core_id, id);
-                } else {
-                    // TODO: Fails on Apple Silicon -> test on Intel Linux
-                    tracing::warn!("Failed acquiring core id {:?} for feed thread id: {} (ok on Apple Silicon)", core_id, id);
+                match core_ids.get(core_id) {
+                    Some(core_id) => {
+                        if core_affinity::set_for_current(core_id.clone()) {
+                            tracing::info!("Pinned feed thread id {} to core id {:?}", id, core_id);
+                        } else {
+                            // TODO: Fails on Apple Silicon -> test on Linux AMD
+                            tracing::warn!("Failed pinning feed thread id {} to core id {:?} (ok on Apple Silicon)", id, core_id);
+                        }
+                    }
+                    None => {
+                        tracing::warn!("Failed getting core id {} for feed thread id {} (ok on Apple Silicon)", core_id, id);
+                    }
                 }
 
                 let mut shm_writer = SharedMemoryWriter::create(
@@ -228,14 +226,17 @@ pub fn run() {
             let core_id = core_ids.len() - 1;
             tracing::info!("Starting feeds reader thread on core id {}", core_id);
 
-            let core_id = core_ids.get(core_id ).unwrap_or_else( || {
-                panic!("Failed getting core id {} for feeds reader thread", core_id);
-            });
-
-            if core_affinity::set_for_current(*core_id) {
-                tracing::info!("Using core id {:?} for feeds reader thread", core_id);
-            } else {
-                tracing::warn!("Failed acquiring core id {:?} for feeds reader thread (ok on Apple Silicon)", core_id);
+            match core_ids.get(core_id) {
+                Some(core_id) => {
+                    if core_affinity::set_for_current(core_id.clone()) {
+                        tracing::info!("Pinned feeds reader thread to core id {:?}", core_id);
+                    } else {
+                        tracing::warn!("Failed pinning feeds reader thread to core id {:?} (ok on Apple Silicon)", core_id);
+                    }
+                }
+                None => {
+                    tracing::warn!("Failed getting core id {} for feeds reader thread (ok on Apple Silicon)", core_id);
+                }
             }
 
             let mut iterations = 0;

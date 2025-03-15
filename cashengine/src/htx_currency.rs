@@ -123,10 +123,6 @@ impl HtxCurrencies {
         self.data.len()
     }
 
-    pub fn get_currencies(&self) -> Vec<&HtxCurrency> {
-        self.data.iter().collect()
-    }
-
     pub fn get_error(&self) -> Result<(), String> {
         if self.err_code.is_some() || self.err_msg.is_some() {
             let mut error_message = String::new();
