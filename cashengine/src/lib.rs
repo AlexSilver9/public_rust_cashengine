@@ -197,6 +197,7 @@ pub fn run() {
                 websocket_count * MARKETS_PER_WEBSOCKET,
             );
 
+            let mut iterations = 0;
             let mut p95_tracker = P95Tracker::new(128);
 
             loop {
@@ -238,13 +239,17 @@ pub fn run() {
 
                                                             p95_tracker.push(latency);
 
-                                                            if p95_tracker.has_enough_samples() {
-                                                                if let Some(p95) = p95_tracker.p95() {
-                                                                    tracing::debug!("P95 Latency: {} μs", p95);
-                                                                    tracing::trace!("Read message from writer_id: {}, sequence: {}, start_timestamp_micros: {}, offset: {}, message: {}",
+                                                            // Print message and P95 Latency every 100000 iterations.
+                                                            if iterations % 100000 == 0 {
+                                                                if p95_tracker.has_enough_samples() {
+                                                                    if let Some(p95) = p95_tracker.p95() {
+                                                                        tracing::debug!("P95 Latency: {} μs", p95);
+                                                                        tracing::debug!("Read message from writer_id: {}, sequence: {}, start_timestamp_micros: {}, offset: {}, message: {}",
                                                                         writer_id, sequence, start_timestamp_micros, offset, message);
+                                                                    }
                                                                 }
                                                             }
+
                                                         },
                                                         Err(e) => tracing::error!("Failed getting duration for UNIX epoch: {}", e),
                                                     }
@@ -261,6 +266,7 @@ pub fn run() {
                         _ => ()
                     }
                 }
+                iterations += 1;
             }
         });
         main_thread.join().unwrap();
