@@ -79,7 +79,7 @@ impl<'a> SharedMemoryWriter<'a> {
         let start_timestamp_micros = self.start_bench();
 
         let target_offset = chunk_index * self.chunk_size;
-        // TODO: Remove String allocation and this write!() here. Use copy_nonoverlapping() to directly copy the message into the write_buffer.
+        // TODO: Remove String allocation and this write!() here. Use copy_nonoverlapping() to directly copy the message into the shared memory.
         let mut message = String::from_utf8(message.to_vec()).unwrap();
         message.push('\0');
 
