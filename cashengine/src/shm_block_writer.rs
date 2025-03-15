@@ -80,8 +80,8 @@ impl<'a> SharedMemoryWriter<'a> {
         let target_offset = chunk_index * self.chunk_size;
         // TODO: Remove String allocation and this write!() here. Use copy_nonoverlapping() to directly copy the message into the write_buffer.
         let mut message = String::from_utf8(message.to_vec()).unwrap();
+        message.push('\0');
 
-        //message.push('\0');
         write!(
             &mut self.write_buffer,
             "{}:{}:{}:{:0width$}:{}",
